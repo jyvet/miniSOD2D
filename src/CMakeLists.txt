@@ -1,0 +1,5 @@
+add_subdirectory(utils)
+add_subdirectory(geometry)
+add_subdirectory(fem)
+add_subdirectory(kernels)
+add_subdirectory(app)
