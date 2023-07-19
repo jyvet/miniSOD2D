@@ -7,13 +7,15 @@ program main
 	use elem_hex
 	use mod_mesh
 	use jacobian_oper
+	use elem_convec
+	use elem_diffu
 
     implicit none
 
 	!
 	! Mesh vars not in mod_constants
 	!
-	integer(4), parameter   :: nelem = 2
+	integer(4), parameter   :: nelem = 1
 	integer(4), parameter   :: npoin = nelem * nnode
 	integer(4), allocatable :: connec(:,:)
 	real(rp)  , allocatable :: coord(:,:), He(:,:,:,:), gpvol(:,:,:)
@@ -22,7 +24,7 @@ program main
 	! Element characteristics
 	!
 	integer(4), allocatable :: gmshIJK(:,:), invAtoIJK(:,:,:), AtoIJK(:), AtoI(:), AtoJ(:), AtoK(:), gmsh2sodIJK(:,:)
-	real(rp)  , allocatable :: Ngp(:,:), Ngp_l(:,:), dNgp(:,:,:), dNgp_l(:,:,:), dlxigp_ip(:,:)
+	real(rp)  , allocatable :: Ngp(:,:), Ngp_l(:,:), dNgp(:,:,:), dNgp_l(:,:,:), dlxigp_ip(:,:,:)
 	real(rp)  , allocatable :: wgp(:), xgp(:,:)
 
 	!
@@ -31,6 +33,18 @@ program main
 	integer(4)              :: ielem, inode, igaus, ipoin, iorder, jnode, i, j, k
 
 	!
+	! Case variables and residuals
+	!
+	real(rp),   allocatable :: u(:,:), q(:,:), rho(:), pr(:), E(:), Tem(:)
+	real(rp),   allocatable :: Rmass(:), Rmom(:,:), Rener(:)
+	real(rp),   allocatable :: Dmass(:), Dmom(:,:), Dener(:)
+
+	!
+	! Fluid properties
+	!
+	real(rp)                :: Cp, Pra
+	real(rp),   allocatable :: mu_fluid(:), mu_e(:,:), mu_sgs(:,:)
+	!
 	! Generate isopar. element
 	!
 
@@ -38,7 +52,7 @@ program main
 		allocate(gmshIJK(nnode,3), invAtoIJK(porder+1,porder+1,porder+1))
 		allocate(AtoIJK(nnode), AtoI(nnode), AtoJ(nnode), AtoK(nnode), gmsh2sodIJK(porder+1,2))
 		allocate(Ngp(ngaus,nnode), Ngp_l(ngaus,nnode), dNgp(ndime,nnode,ngaus), dNgp_l(ndime,nnode,ngaus))
-		allocate(wgp(ngaus), xgp(ngaus,ndime), dlxigp_ip(ndime,porder+1))
+		allocate(wgp(ngaus), xgp(ngaus,ndime), dlxigp_ip(ngaus,ndime,porder+1))
 
 		! Generate element gmshIJK
 		call nvtxStartRange("Generate gmshIJK Gmsh")
@@ -145,7 +159,7 @@ program main
 		do igaus = 1,ngaus
 			call hex_highorder(porder,nnode,xgp(igaus,1),xgp(igaus,2),xgp(igaus,3), &
 								AtoIJK,Ngp(igaus,:),dNgp(:,:,igaus), &
-								Ngp_l(igaus,:),dNgp_l(:,:,igaus),dlxigp_ip)
+								Ngp_l(igaus,:),dNgp_l(:,:,igaus),dlxigp_ip(igaus,:,:))
 		end do
 		call nvtxEndRange
 #ifdef __DEBUG__
@@ -201,6 +215,59 @@ program main
 		do igaus = 1,ngaus
 			write(*,*) 'gpvol(',igaus,',',ielem,') = ', gpvol(1,igaus,ielem)
 		end do
+	end do
+	write(*,*)
+#endif
+
+	!
+	! Generate initial conditions
+	!
+	allocate(u(npoin,ndime), q(npoin,ndime), rho(npoin), pr(npoin), E(npoin), Tem(npoin))
+	call nvtxStartRange("Generate initial conditions")
+	!$acc kernels
+	u(:,:) = 1.0_rp
+	q(:,:) = 1.0_rp
+	rho(:) = 1.0_rp
+	pr(:)  = 1.0_rp
+	E(:)   = 1.0_rp
+	Tem(:)   = 1.0_rp
+	!$acc end kernels
+	call nvtxEndRange
+
+	!
+	! Fluid properties
+	!
+	Cp = 1.0_rp
+	Pra = 1.0_rp
+
+	!
+	! Call the convective term multiple times
+	!
+	allocate(Rmass(npoin), Rmom(npoin,ndime), Rener(npoin))
+	allocate(Dmass(npoin), Dmom(npoin,ndime), Dener(npoin))
+	call nvtxStartRange("Loop kernels")
+	do i = 1,10
+		call nvtxStartRange("Call convective term")
+		call full_convec_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,u,q,rho,pr,E,Rmass,Rmom,Rener)
+		call nvtxEndRange
+		call nvtxStartRange("Call diffusive term")
+		full_diffusion_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,Cp,Pra,rho,u,Tem,mu_fluid,mu_e,mu_sgs,Dmass,Dmom,Dener)
+		call nvtxEndRange
+	end do
+	call nvtxEndRange
+#ifdef __DEBUG__
+	do ipoin = 1,npoin
+		write(*,*) 'Rmass(',ipoin,') = ', Rmass(ipoin)
+	end do
+	write(*,*)
+	do ipoin = 1,npoin
+		do i = 1,ndime
+			write(*,*) 'Rmom(',ipoin,',',i,') = ', Rmom(ipoin,i)
+		end do
+	end do
+	write(*,*)
+	do ipoin = 1,npoin
+		write(*,*) 'Rener(',ipoin,') = ', Rener(ipoin)
 	end do
 	write(*,*)
 #endif
