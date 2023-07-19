@@ -9,13 +9,14 @@ program main
 	use jacobian_oper
 	use elem_convec
 	use elem_diffu
+	use mpi
 
     implicit none
 
 	!
 	! Mesh vars not in mod_constants
 	!
-	integer(4), parameter   :: nelem = 1
+	integer(4), parameter   :: nelem = 1000
 	integer(4), parameter   :: npoin = nelem * nnode
 	integer(4), allocatable :: connec(:,:)
 	real(rp)  , allocatable :: coord(:,:), He(:,:,:,:), gpvol(:,:,:)
@@ -44,6 +45,21 @@ program main
 	!
 	real(rp)                :: Cp, Pra
 	real(rp),   allocatable :: mu_fluid(:), mu_e(:,:), mu_sgs(:,:)
+
+	!
+	! Timing
+	!
+	real(8) :: tstart, tend, tconvec, tdiffu, tavg_convec, tavg_diffu
+
+	!
+	! Print run config to screen
+	!
+	write(*,*) 'Number of elements = ', nelem
+	write(*,*) 'Element order = ', porder
+	write(*,*) 'Number of nodes per element = ', nnode
+	write(*,*) 'Nodes on mesh = ', npoin
+	write(*,*)
+
 	!
 	! Generate isopar. element
 	!
@@ -223,6 +239,7 @@ program main
 	! Generate initial conditions
 	!
 	allocate(u(npoin,ndime), q(npoin,ndime), rho(npoin), pr(npoin), E(npoin), Tem(npoin))
+	allocate(mu_fluid(npoin), mu_e(nelem,nnode), mu_sgs(nelem,nnode))
 	call nvtxStartRange("Generate initial conditions")
 	!$acc kernels
 	u(:,:) = 1.0_rp
@@ -231,6 +248,9 @@ program main
 	pr(:)  = 1.0_rp
 	E(:)   = 1.0_rp
 	Tem(:)   = 1.0_rp
+	mu_fluid(:) = 1.0_rp
+	mu_e(:,:) = 1.0_rp
+	mu_sgs(:,:) = 1.0_rp
 	!$acc end kernels
 	call nvtxEndRange
 
@@ -245,30 +265,54 @@ program main
 	!
 	allocate(Rmass(npoin), Rmom(npoin,ndime), Rener(npoin))
 	allocate(Dmass(npoin), Dmom(npoin,ndime), Dener(npoin))
+	open(unit=1,file='timers.dat',status='replace')
+	tavg_convec = 0.0d0
+	tavg_diffu = 0.0d0
 	call nvtxStartRange("Loop kernels")
-	do i = 1,10
+	do i = 1,100
 		call nvtxStartRange("Call convective term")
+		tstart = MPI_Wtime()
 		call full_convec_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,u,q,rho,pr,E,Rmass,Rmom,Rener)
+		tend = MPI_Wtime()
+		tconvec = tend-tstart
+		tavg_convec = tavg_convec + tconvec
 		call nvtxEndRange
 		call nvtxStartRange("Call diffusive term")
-		full_diffusion_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,Cp,Pra,rho,u,Tem,mu_fluid,mu_e,mu_sgs,Dmass,Dmom,Dener)
+		tstart = MPI_Wtime()
+		call full_diffusion_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,Cp,Pra,rho,u,Tem,mu_fluid,mu_e,mu_sgs,Dmass,Dmom,Dener)
+		tend = MPI_Wtime()
+		tdiffu = tend-tstart
+		tavg_diffu = tavg_diffu + tdiffu
+		write(1,*) i, tconvec, tdiffu
 		call nvtxEndRange
 	end do
 	call nvtxEndRange
+	close(1)
+
+	!
+	! Write avg times to screen
+	!
+	tavg_convec = tavg_convec / 100.0d0
+	tavg_diffu = tavg_diffu / 100.0d0
+	write(*,*) 'Avg. convective time = ', tavg_convec
+	write(*,*) 'Avg. diffusive time = ', tavg_diffu
+
+	!
+	! Write results to file
+	!
 #ifdef __DEBUG__
+	call nvtxStartRange("Write results to file")
+	open(unit=10,file='results_convec.dat',status='replace')
 	do ipoin = 1,npoin
-		write(*,*) 'Rmass(',ipoin,') = ', Rmass(ipoin)
+		write(10,*) ipoin, Rmass(ipoin), Rmom(ipoin,1), Rmom(ipoin,2), Rmom(ipoin,3), Rener(ipoin)
 	end do
-	write(*,*)
+	close(10)
+	open(unit=11,file='results_diffu.dat',status='replace')
 	do ipoin = 1,npoin
-		do i = 1,ndime
-			write(*,*) 'Rmom(',ipoin,',',i,') = ', Rmom(ipoin,i)
-		end do
+		write(10,*) ipoin, Dmass(ipoin), Dmom(ipoin,1), Dmom(ipoin,2), Dmom(ipoin,3), Dener(ipoin)
 	end do
-	write(*,*)
-	do ipoin = 1,npoin
-		write(*,*) 'Rener(',ipoin,') = ', Rener(ipoin)
-	end do
-	write(*,*)
+	close(11)
+	call nvtxEndRange
 #endif
+
 end program main
