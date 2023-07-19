@@ -10,6 +10,6 @@ add_executable(${PROJECT_NAME} ${SRC_FILES})
 
 target_link_libraries(${PROJECT_NAME} tmu_utils tmu_geometry tmu_fem tmu_kernels)
 
-set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "app_F90" VERSION ${TEST_VERSION} SOVERSION ${TEST_VERSION_MAJOR})
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "miniSOD" VERSION ${TEST_VERSION} SOVERSION ${TEST_VERSION_MAJOR})
 
 install(TARGETS ${PROJECT_NAME} DESTINATION bin)

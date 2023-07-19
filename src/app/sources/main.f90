@@ -16,7 +16,7 @@ program main
 	!
 	! Mesh vars not in mod_constants
 	!
-	integer(4), parameter   :: nelem = 1000
+	integer(4), parameter   :: nelem = 10000
 	integer(4), parameter   :: npoin = nelem * nnode
 	integer(4), allocatable :: connec(:,:)
 	real(rp)  , allocatable :: coord(:,:), He(:,:,:,:), gpvol(:,:,:)
@@ -50,6 +50,26 @@ program main
 	! Timing
 	!
 	real(8) :: tstart, tend, tconvec, tdiffu, tavg_convec, tavg_diffu
+
+	!
+	! MPI vars
+	!
+	integer(4) :: ierr, myrank, nprocs
+
+	!
+	! Initialize the MPI environment
+	!
+	call MPI_Init(ierr)
+
+	!
+	! Get number of processes and process rank
+	!
+	call MPI_Comm_size(MPI_COMM_WORLD, nprocs, ierr)
+	call MPI_Comm_rank(MPI_COMM_WORLD, myrank, ierr)
+	if (nprocs > 1) then
+		write(*,*) 'This program only works with 1 MPI process'
+		stop
+	end if
 
 	!
 	! Print run config to screen
@@ -314,5 +334,10 @@ program main
 	close(11)
 	call nvtxEndRange
 #endif
+
+	!
+	! Finalize MPI environment
+	!
+	call MPI_Finalize(ierr)
 
 end program main
