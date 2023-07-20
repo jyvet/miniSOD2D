@@ -31,7 +31,7 @@ module mod_mesh
 			integer(4)              :: ielem, inode
 
 			call nvtxStartRange("gen_connectivity")
-			!$acc parallel loop collapse(2) present(connec)
+			!$acc parallel loop collapse(2)
 			do ielem = 1, nelem
 				do inode = 1,nnode
 					connec(ielem,inode) = (ielem-1)*nnode + inode

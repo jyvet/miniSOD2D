@@ -4,6 +4,7 @@ program main
 	use mod_nvtx
 	use mod_gmsh_indices
 	use quadrature_rules
+	use elem_qua
 	use elem_hex
 	use mod_mesh
 	use jacobian_oper
@@ -83,6 +84,10 @@ program main
 	!
 	! Generate isopar. element
 	!
+
+		! Initialize quad and hex info
+		call init_basic_qua()
+		call init_basic_hex()
 
 		! Allocate memory for element characteristics vars.
 		allocate(gmshIJK(nnode,3), invAtoIJK(porder+1,porder+1,porder+1))
