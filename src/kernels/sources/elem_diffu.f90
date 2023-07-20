@@ -32,13 +32,13 @@ module elem_diffu
 
                       call nvtxStartRange("Full diffusion")
                       twoThirds = 2.0_rp/3.0_rp
-                      !$acc kernels
+                      !$acc kernels present(Rmass,Rmom,Rener)
                       Rmass(:) = 0.0_rp
                       Rmom(:,:) = 0.0_rp
                       Rener(:) = 0.0_rp
                       !$acc end kernels
 
-                      !$acc parallel loop gang  private(ul,Teml,rhol,mufluidl,gradRhol,gradTl,tauUl,tauXl,tauYl,tauZl)
+                      !$acc parallel loop gang private(ul,Teml,rhol,mufluidl,gradRhol,gradTl,tauUl,tauXl,tauYl,tauZl) present(connec,rho,u,Tem,mu_fluid,mu_e,mu_sgs,invAtoIJK,gmshAtoI,gmshAtoJ,gmshAtoK,dlxigp_ip,He,gpvol,Rmass,Rmom,Rener)
                       do ielem = 1,nelem
                          !$acc loop vector
                          do inode = 1,nnode

@@ -31,13 +31,11 @@ module mod_mesh
 			integer(4)              :: ielem, inode
 
 			call nvtxStartRange("gen_connectivity")
-			!$acc parallel loop collapse(2)
 			do ielem = 1, nelem
 				do inode = 1,nnode
 					connec(ielem,inode) = (ielem-1)*nnode + inode
 				end do
 			end do
-			!$acc end parallel loop
 			call nvtxEndRange
 
 		end subroutine gen_connectivity
@@ -48,16 +46,19 @@ module mod_mesh
 			integer(4), intent(in)    :: nelem, npoin, connec(nelem,nnode)
 			real(rp),   intent(in)    :: xyzBase(nnode,ndime)
 			real(rp),   intent(out)   :: xyz(npoin,ndime)
-			integer(4)                :: ielem, inode
-			real(rp)                  :: xyz0(3)
+			integer(4)                :: ielem, inode, idime, ipoin
+			real(rp)                  :: xyz0
 
-			xyz0 = [0.0_rp,0.0_rp,0.0_rp]
+			xyz0 = 0.0_rp
+
 			call nvtxStartRange("gen_coordinates")
 			do ielem = 1, nelem
 				do inode = 1,nnode
-					xyz(connec(ielem,inode),:) = xyzBase(inode,:)+xyz0(:)
+					xyz(connec(ielem,inode),1) = xyzBase(inode,1)+xyz0
+					xyz(connec(ielem,inode),2) = xyzBase(inode,2)+xyz0
+					xyz(connec(ielem,inode),3) = xyzBase(inode,3)+xyz0
 				end do
-				xyz0(:) = xyz0(:)+[3.0_rp,3.0_rp,3.0_rp]
+				xyz0 = xyz0+3.0_rp
 			end do
 			call nvtxEndRange
 

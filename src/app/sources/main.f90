@@ -17,7 +17,7 @@ program main
 	!
 	! Mesh vars not in mod_constants
 	!
-	integer(4), parameter   :: nelem = 10000
+	integer(4), parameter   :: nelem = 312500
 	integer(4), parameter   :: npoin = nelem * nnode
 	integer(4), allocatable :: connec(:,:)
 	real(rp)  , allocatable :: coord(:,:), He(:,:,:,:), gpvol(:,:,:)
@@ -32,6 +32,7 @@ program main
 	!
 	! Loop variables
 	!
+	integer(4), parameter   :: nruns = 500
 	integer(4)              :: ielem, inode, igaus, ipoin, iorder, jnode, i, j, k
 
 	!
@@ -50,7 +51,7 @@ program main
 	!
 	! Timing
 	!
-	real(8) :: tstart, tend, tconvec, tdiffu, tavg_convec, tavg_diffu
+	real(8) :: tstart, tend, tconvec, tdiffu, tavg_convec, tavg_diffu, tmax_convec, tmax_diffu, tmin_convec, tmin_diffu
 
 	!
 	! MPI vars
@@ -75,10 +76,11 @@ program main
 	!
 	! Print run config to screen
 	!
-	write(*,*) 'Number of elements = ', nelem
-	write(*,*) 'Element order = ', porder
+	write(*,*) 'Number of elements          = ', nelem
+	write(*,*) 'Element order               = ', porder
 	write(*,*) 'Number of nodes per element = ', nnode
-	write(*,*) 'Nodes on mesh = ', npoin
+	write(*,*) 'Nodes on mesh               = ', npoin
+	write(*,*) 'Number of runs              = ', nruns
 	write(*,*)
 
 	!
@@ -170,6 +172,11 @@ program main
 		write(*,*)
 #endif
 
+		! Copy data to GPU
+		call nvtxStartRange("Copyin AtoIJK and invAtoIJK")
+		!$acc enter data copyin(AtoIJK,invAtoIJK)
+		call nvtxEndRange
+
 		! Get separate I, J, K arrays per node
 		call nvtxStartRange("Get separate I, J, K arrays per node")
 		do inode = 1,nnode
@@ -177,6 +184,11 @@ program main
 			AtoJ(inode) = gmshIJK(inode,2)
 			AtoK(inode) = gmshIJK(inode,3)
 		end do
+		call nvtxEndRange
+
+		! Copy data to GPU
+		call nvtxStartRange("Copyin AtoI, AtoJ, AtoK")
+		!$acc enter data copyin(AtoI,AtoJ,AtoK)
 		call nvtxEndRange
 
 		! Generate isopar. coordinates and GLL quadrature info
@@ -195,6 +207,11 @@ program main
 		write(*,*)
 #endif
 
+		! Copy data to GPU
+		call nvtxStartRange("Copyin xgp, wgp")
+		!$acc enter data copyin(xgp,wgp)
+		call nvtxEndRange
+
 		! Generate shape functions and derivatives
 		call nvtxStartRange("Generate shape functions and derivatives")
 		do igaus = 1,ngaus
@@ -211,6 +228,11 @@ program main
 		end do
 		write(*,*)
 #endif
+
+		! Copy data to GPU
+		call nvtxStartRange("Copyin Ngp, dNgp, Ngp_l, dNgp_l, dlxigp_ip")
+		!$acc enter data copyin(Ngp,dNgp,Ngp_l,dNgp_l,dlxigp_ip)
+		call nvtxEndRange
 
 	!
 	! Generate mesh
@@ -233,15 +255,27 @@ program main
 	write(*,*)
 #endif
 
+	! Copy data to GPU
+	call nvtxStartRange("Copyin connec, coord")
+	!$acc enter data copyin(connec,coord)
+	call nvtxEndRange
+
 	!
 	! Compute Jcobian info
 	!
 	allocate(He(ndime,ndime,ngaus,nelem))
 	allocate(gpvol(1,ngaus,nelem))
+		! Generate GPU memory
+		call nvtxStartRange("Generate He and gpvol")
+		He = 0.0_rp
+		gpvol = 0.0_rp
+		!$acc enter data copyin(He,gpvol)
+		call nvtxEndRange
 	call nvtxStartRange("Compute Jcobian info")
 	call elem_jacobian(nelem,npoin,connec,coord,dNgp,wgp,gpvol,He)
 	call nvtxEndRange
 #ifdef __DEBUG__
+	!$acc update host(He,gpvol)
 	do ielem = 1,nelem
 		do igaus = 1,ngaus
 			do i = 1,ndime
@@ -265,8 +299,11 @@ program main
 	!
 	allocate(u(npoin,ndime), q(npoin,ndime), rho(npoin), pr(npoin), E(npoin), Tem(npoin))
 	allocate(mu_fluid(npoin), mu_e(nelem,nnode), mu_sgs(nelem,nnode))
+	call nvtxStartRange("Alloc GPU initial conditions")
+	!$acc enter data create(u,q,rho,pr,E,Tem,mu_fluid,mu_e,mu_sgs)
+	call nvtxEndRange
 	call nvtxStartRange("Generate initial conditions")
-	!$acc kernels
+	!$acc kernels present(u,q,rho,pr,E,Tem,mu_fluid,mu_e,mu_sgs)
 	u(:,:) = 1.0_rp
 	q(:,:) = 1.0_rp
 	rho(:) = 1.0_rp
@@ -279,6 +316,18 @@ program main
 	!$acc end kernels
 	call nvtxEndRange
 
+		! change 1st node of every element
+		!$acc kernels present(connec,u,q,rho,pr,E,Tem,mu_fluid,mu_e,mu_sgs)
+		do ielem = 1,nelem
+			u(connec(ielem,1),:) = 10.0_rp
+			q(connec(ielem,1),:) = 10.0_rp
+			rho(connec(ielem,1)) = 10.0_rp
+			pr(connec(ielem,1))  = 10.0_rp
+			E(connec(ielem,1))   = 10.0_rp
+			Tem(connec(ielem,1))   = 10.0_rp
+		end do
+		!$acc end kernels
+
 	!
 	! Fluid properties
 	!
@@ -290,16 +339,23 @@ program main
 	!
 	allocate(Rmass(npoin), Rmom(npoin,ndime), Rener(npoin))
 	allocate(Dmass(npoin), Dmom(npoin,ndime), Dener(npoin))
+	!$acc enter data create(Rmass,Rmom,Rener,Dmass,Dmom,Dener)
 	open(unit=1,file='timers.dat',status='replace')
 	tavg_convec = 0.0d0
 	tavg_diffu = 0.0d0
+	tmax_convec = 0.0d0
+	tmax_diffu = 0.0d0
+	tmin_convec = 1000000.0d0
+	tmin_diffu = 1000000.0d0
 	call nvtxStartRange("Loop kernels")
-	do i = 1,100
+	do i = 1,nruns
 		call nvtxStartRange("Call convective term")
 		tstart = MPI_Wtime()
 		call full_convec_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,u,q,rho,pr,E,Rmass,Rmom,Rener)
 		tend = MPI_Wtime()
 		tconvec = tend-tstart
+		tmax_convec = max(tmax_convec,tconvec)
+		tmin_convec = min(tmin_convec,tconvec)
 		tavg_convec = tavg_convec + tconvec
 		call nvtxEndRange
 		call nvtxStartRange("Call diffusive term")
@@ -307,6 +363,8 @@ program main
 		call full_diffusion_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,Cp,Pra,rho,u,Tem,mu_fluid,mu_e,mu_sgs,Dmass,Dmom,Dener)
 		tend = MPI_Wtime()
 		tdiffu = tend-tstart
+		tmax_diffu = max(tmax_diffu,tdiffu)
+		tmin_diffu = min(tmin_diffu,tdiffu)
 		tavg_diffu = tavg_diffu + tdiffu
 		write(1,*) i, tconvec, tdiffu
 		call nvtxEndRange
@@ -317,10 +375,43 @@ program main
 	!
 	! Write avg times to screen
 	!
-	tavg_convec = tavg_convec / 100.0d0
-	tavg_diffu = tavg_diffu / 100.0d0
+	tavg_convec = tavg_convec / real(nruns,8)
+	tavg_diffu = tavg_diffu / real(nruns,8)
+
+	write(*,*)
+	write(*,*) 'Timings:'
+	write(*,*) '----------------------------------------'
 	write(*,*) 'Avg. convective time = ', tavg_convec
-	write(*,*) 'Avg. diffusive time = ', tavg_diffu
+	write(*,*) 'Avg. diffusive time  = ', tavg_diffu
+	write(*,*) 'Max. convective time = ', tmax_convec
+	write(*,*) 'Max. diffusive time  = ', tmax_diffu
+	write(*,*) 'Min. convective time = ', tmin_convec
+	write(*,*) 'Min. diffusive time  = ', tmin_diffu
+	write(*,*) '----------------------------------------'
+	write(*,*) 'Variation convec.    = ', (tmax_convec-tmin_convec)/tavg_convec
+	write(*,*) 'Variation diffu.     = ', (tmax_diffu-tmin_diffu)/tavg_diffu
+	write(*,*) '----------------------------------------'
+
+	!
+	! Print minimal results set
+	!
+	call nvtxStartRange("Update host results")
+	!$acc update host(Rmass,Rmom,Rener,Dmass,Dmom,Dener)
+	call nvtxEndRange
+	write(*,*)
+	write(*,*) 'Basic results:'
+	write(*,*) '----------------------------------------'
+	write(*,*) 'Max Rmass     = ', maxval(Rmass)    , 'Min Rmass     = ', minval(Rmass)
+	write(*,*) 'Max Rmom(:,1) = ', maxval(Rmom(:,1)), 'Min Rmom(:,1) = ', minval(Rmom(:,1))
+	write(*,*) 'Max Rmom(:,2) = ', maxval(Rmom(:,2)), 'Min Rmom(:,2) = ', minval(Rmom(:,2))
+	write(*,*) 'Max Rmom(:,3) = ', maxval(Rmom(:,3)), 'Min Rmom(:,3) = ', minval(Rmom(:,3))
+	write(*,*) 'Max Rener     = ', maxval(Rener)    , 'Min Rener     = ', minval(Rener)
+	write(*,*) '----------------------------------------'
+	write(*,*) 'Max Dmass     = ', maxval(Dmass)    , 'Min Dmass     = ', minval(Dmass)
+	write(*,*) 'Max Dmom(:,1) = ', maxval(Dmom(:,1)), 'Min Dmom(:,1) = ', minval(Dmom(:,1))
+	write(*,*) 'Max Dmom(:,2) = ', maxval(Dmom(:,2)), 'Min Dmom(:,2) = ', minval(Dmom(:,2))
+	write(*,*) 'Max Dmom(:,3) = ', maxval(Dmom(:,3)), 'Min Dmom(:,3) = ', minval(Dmom(:,3))
+	write(*,*) 'Max Dener     = ', maxval(Dener)    , 'Min Dener     = ', minval(Dener)
 
 	!
 	! Write results to file
@@ -334,7 +425,7 @@ program main
 	close(10)
 	open(unit=11,file='results_diffu.dat',status='replace')
 	do ipoin = 1,npoin
-		write(10,*) ipoin, Dmass(ipoin), Dmom(ipoin,1), Dmom(ipoin,2), Dmom(ipoin,3), Dener(ipoin)
+		write(11,*) ipoin, Dmass(ipoin), Dmom(ipoin,1), Dmom(ipoin,2), Dmom(ipoin,3), Dener(ipoin)
 	end do
 	close(11)
 	call nvtxEndRange

@@ -13,6 +13,7 @@ use mod_maths
 			implicit none
 			allocate(quad_order_edges(4,2))
 			quad_order_edges = transpose(reshape([1,2,2,3,3,4,4,1],(/2,4/)))
+			!$acc enter data copyin(quad_order_edges)
 		end subroutine init_basic_qua
 
 		subroutine quad_highorder(mporder,mnpbou,xi,eta,atoIJ,N,dN) ! QUA16 element

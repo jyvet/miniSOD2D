@@ -17,6 +17,7 @@ contains
 		allocate(hex_order_faces(6,4))
 		hex_order_edges = transpose(reshape([1,2,1,4,1,5,2,3,2,6,3,4,3,7,4,8,5,6,5,8,6,7,7,8],(/2,12/)))
 		hex_order_faces = transpose(reshape([1,4,3,2,1,2,6,5,1,5,8,4,2,3,7,6,3,4,8,7,5,6,7,8],(/4,6/)))
+		!$acc enter data copyin(hex_order_edges,hex_order_faces)
 	end subroutine init_basic_hex
 
 	subroutine hex_highorder(mporder,mnnode,xi,eta,zeta,atoIJK,N,dN,N_lagrange,dN_lagrange,dlxigp_ip)
