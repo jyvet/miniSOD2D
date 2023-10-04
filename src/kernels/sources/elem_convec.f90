@@ -27,6 +27,7 @@
 					real(rp),    intent(out) :: Rmom(npoin,ndime)
 					real(rp),    intent(out) :: Rener(npoin)
 					integer(4)              :: ielem, igaus, idime, jdime, inode, isoI, isoJ, isoK,kdime,ii
+					integer(4)              :: ipoin(nnode)
 					real(rp)                 :: Re_mom(nnode,ndime)
 					real(rp)                 :: Re_mass(nnode), Re_ener(nnode)
 					real(rp)                 :: gradIsoRho(ndime),gradIsoP(ndime), gradIsoE(ndime),gradIsoU(ndime,ndime), gradIsoF(ndime,ndime,ndime), gradIsoQ(ndime,ndime), gradIsoFe(ndime,ndime)
@@ -41,29 +42,33 @@
 					Rener(:) = 0.0_rp
 					!$acc end kernels
 
-					!$acc parallel loop gang private(Re_ener,Re_mass,Re_mom,ul,ql,rhol,prl,El,fl,fel) present(connec,u,q,rho,pr,E,Rmass,Rmom,Rener)
+					!$acc parallel loop gang private(Re_ener,Re_mass,Re_mom,ul,ql,rhol,prl,El,fl,fel,ipoin) present(connec,u,q,rho,pr,E,Rmass,Rmom,Rener)
 					do ielem = 1,nelem
+						!$acc loop vector
+						do inode = 1,nnode
+							ipoin(inode) = connec(ielem,inode)
+						end do
 						!$acc loop vector collapse(2)
 						do idime = 1,ndime
 							do inode = 1,nnode
-								ul(inode,idime) = u(connec(ielem,inode),idime)
-								ql(inode,idime) = q(connec(ielem,inode),idime)
-								fel(inode,idime) = (E(connec(ielem,inode))+pr(connec(ielem,inode)))*u(connec(ielem,inode),idime)
+								ul(inode,idime) = u(ipoin(inode),idime)
+								ql(inode,idime) = q(ipoin(inode),idime)
+								fel(inode,idime) = (E(ipoin(inode))+pr(ipoin(inode)))*u(ipoin(inode),idime)
 							end do
 						end do
 						!$acc loop vector collapse(3)
 						do idime = 1,ndime
 							do jdime = 1,ndime
 								do inode = 1,nnode
-									fl(inode,idime,jdime)  = q(connec(ielem,inode),idime)*u(connec(ielem,inode),jdime)
+									fl(inode,idime,jdime)  = q(ipoin(inode),idime)*u(ipoin(inode),jdime)
 								end do
 							end do
 						end do
 						!$acc loop vector
 						do inode = 1,nnode
-							rhol(inode) = rho(connec(ielem,inode))
-							El(inode) = E(connec(ielem,inode))
-							prl(inode) = pr(connec(ielem,inode))
+							rhol(inode) = rho(ipoin(inode))
+							El(inode) = E(ipoin(inode))
+							prl(inode) = pr(ipoin(inode))
 						end do
 						!$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip, gradIsoRho,gradIsoP, gradIsoE,gradIsoU, gradIsoF, gradIsoQ, gradIsoFe,gradRho,gradP,gradE,gradU,divF,divU,divQ,divFe)
 						do igaus = 1,ngaus
@@ -169,17 +174,17 @@
 						do idime = 1,ndime
 							do inode = 1,nnode
 								!$acc atomic update
-								Rmom(connec(ielem,inode),idime) = Rmom(connec(ielem,inode),idime)+Re_mom(inode,idime)
+								Rmom(ipoin(inode),idime) = Rmom(ipoin(inode),idime)+Re_mom(inode,idime)
 								!$acc end atomic
 							end do
 						end do
 						!$acc loop vector
 						do inode = 1,nnode
 							!$acc atomic update
-							Rmass(connec(ielem,inode)) = Rmass(connec(ielem,inode))+Re_mass(inode)
+							Rmass(ipoin(inode)) = Rmass(ipoin(inode))+Re_mass(inode)
 							!$acc end atomic
 							!$acc atomic update
-							Rener(connec(ielem,inode)) = Rener(connec(ielem,inode))+Re_ener(inode)
+							Rener(ipoin(inode)) = Rener(ipoin(inode))+Re_ener(inode)
 							!$acc end atomic
 						end do
 					end do
