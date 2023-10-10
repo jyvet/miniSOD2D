@@ -196,4 +196,9 @@ module elem_diffu
                      call nvtxEndRange
               end subroutine full_diffusion_ijk
 
+              subroutine fem_diffu()
+                 implicit none
+                 ! TODO: implement
+              end subroutine fem_diffu
+
 end module elem_diffu

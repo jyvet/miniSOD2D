@@ -193,4 +193,75 @@
 
 				end subroutine full_convec_ijk
 
+				subroutine fem_convec(nelem,npoin,connec,Ngp,dNgp,He,gpvol,u,q,rho,pr,E,Rmass,Rmom,Rener)
+
+					implicit none
+					integer(4), intent(in)  :: nelem, npoin
+					integer(4), intent(in)  :: connec(nelem,4)
+					real(rp),    intent(in)  :: Ngp(ngaus,4), dNgp(ndime,4,4)
+					real(rp),    intent(in)  :: He(ndime,ndime,4,nelem)
+					real(rp),    intent(in)  :: gpvol(1,4,nelem)
+					real(rp),    intent(in)  :: q(npoin,ndime), u(npoin,ndime), rho(npoin),pr(npoin), E(npoin)
+					real(rp),    intent(out) :: Rmass(npoin)
+					real(rp),    intent(out) :: Rmom(npoin,ndime)
+					real(rp),    intent(out) :: Rener(npoin)
+					integer(4)              :: ielem, igaus, idime, jdime, inode, isoI, isoJ, isoK,kdime,ii
+					integer(4)              :: ipoin(4)
+					real(rp)                 :: Re_mom(4,ndime)
+					real(rp)                 :: Re_mass(4), Re_ener(4)
+					real(rp)                 :: ul(4,ndime), ql(4,ndime), rhol(4), prl(4),El(4),fel(4,ndime),fl(4,ndime,ndime)
+					real(rp)                 :: gradRho(ndime),gradP(ndime),gradE(ndime),gradU(ndime,ndime),divF(ndime),divU,divFe,divQ
+					real(rp)                 :: gpcar(ndime,4)
+
+					call nvtxStartRange("FEM convection")
+					!$acc kernels
+					Rmom(:,:) = 0.0_rp
+					Rmass(:) = 0.0_rp
+					Rener(:) = 0.0_rp
+					!$acc end kernels
+
+					!$acc parallel loop gang private(Re_ener,Re_mass,Re_mom,ul,ql,rhol,prl,El,fl,fel,ipoin) present(connec,u,q,rho,pr,E,Rmass,Rmom,Rener)
+					do ielem = 1,nelem
+						!$acc loop vector
+						do inode = 1,4
+							ipoin(inode) = connec(ielem,inode)
+						end do
+						!$acc loop vector collapse(2)
+						do idime = 1,ndime
+							do inode = 1,4
+								ul(inode,idime) = u(ipoin(inode),idime)
+								ql(inode,idime) = q(ipoin(inode),idime)
+								fel(inode,idime) = (E(ipoin(inode))+pr(ipoin(inode)))*u(ipoin(inode),idime)
+							end do
+						end do
+						!$acc loop vector collapse(3)
+						do idime = 1,ndime
+							do jdime = 1,ndime
+								do inode = 1,4
+									fl(inode,idime,jdime)  = q(ipoin(inode),idime)*u(ipoin(inode),jdime)
+								end do
+							end do
+						end do
+						!$acc loop vector
+						do inode = 1,4
+							rhol(inode) = rho(ipoin(inode))
+							El(inode) = E(ipoin(inode))
+							prl(inode) = pr(ipoin(inode))
+						end do
+						!$acc loop vector private(gpcar)
+						do igaus = 1,4
+							!! Compute gpcar
+							!$acc loop seq
+							do idime = 1,ndime
+								!$acc loop seq
+								do jnode = 1,4
+									gpcar(idime,jnode) = DOT_PRODUCT(He(idime,:,igaus,ielem),dNgp(:,jnode,igaus))
+								end do
+							end do
+						end do
+					end do
+
+					call nvtxEndRange
+				end subroutine fem_convec
+
 	end module elem_convec
