@@ -6,6 +6,7 @@ program main
 	use quadrature_rules
 	use elem_qua
 	use elem_hex
+	use elem_tet
 	use mod_mesh
 	use jacobian_oper
 	use elem_convec
@@ -17,7 +18,7 @@ program main
 	!
 	! Mesh vars not in mod_constants
 	!
-	integer(4), parameter   :: nelem = 1000
+	integer(4), parameter   :: nelem = 4*300
 	integer(4), parameter   :: npoin = nelem * nnode
 	integer(4), allocatable :: connec(:,:)
 	real(rp)  , allocatable :: coord(:,:), He(:,:,:,:), gpvol(:,:,:)
@@ -52,11 +53,25 @@ program main
 	! Timing
 	!
 	real(8) :: tstart, tend, tconvec, tdiffu, tavg_convec, tavg_diffu, tmax_convec, tmax_diffu, tmin_convec, tmin_diffu
+	real(8) :: tconv_tet, tdiff_tet, tmax_convec_tet, tmax_diffu_tet, tmin_convec_tet, tmin_diffu_tet, tavg_convec_tet, tavg_diffu_tet
 
 	!
 	! MPI vars
 	!
 	integer(4) :: ierr, myrank, nprocs
+
+	!
+	! Tetra variables
+	!
+	integer(4), parameter   :: nnode_t = 4
+	integer(4), parameter   :: ngaus_t = 4
+	integer(4)              :: npoin_t, nelem_t
+	integer(4), allocatable :: connec_t(:,:)
+	real(rp)  , allocatable :: coord_t(:,:), He_t(:,:,:,:), gpvol_t(:,:,:), xyzTET(:,:)
+	real(rp)  , allocatable :: Ngp_t(:,:), dNgp_t(:,:,:)
+	real(rp)  , allocatable :: wgp_t(:), xgp_t(:,:)
+	real(rp),   allocatable :: Rmass_t(:), Rmom_t(:,:), Rener_t(:)
+	real(rp),   allocatable :: Dmass_t(:), Dmom_t(:,:), Dener_t(:)
 
 	!
 	! Initialize the MPI environment
@@ -329,6 +344,44 @@ program main
 		!$acc end kernels
 
 	!
+	! Generate TET04 data
+	!
+		npoin_t = npoin
+		nelem_t = npoin_t/nnode_t
+		if (MODULO(npoin_t,nnode_t) .ne. 0) then
+			write(*,*) 'Error: npoin_t is not divisible by nnode_t'
+			stop
+		end if
+
+		allocate(Ngp_t(ngaus_t,nnode_t), dNgp_t(ndime,nnode_t,ngaus_t))
+		allocate(wgp_t(ngaus_t), xgp_t(ngaus_t,ndime))
+
+		call tet_4points(xgp_t,wgp_t)
+		!$acc enter data copyin(xgp_t,wgp_t)
+
+		do igaus = 1,ngaus_t
+			call tet_04(xgp_t(igaus,1),xgp_t(igaus,2),xgp_t(igaus,3), &
+						Ngp_t(igaus,:),dNgp_t(:,:,igaus))
+		end do
+		!$acc enter data copyin(Ngp_t,dNgp_t)
+
+		allocate(connec_t(nelem_t,nnode_t))
+		allocate(coord_t(npoin_t,ndime))
+		allocate(xyzTET(4,3))
+
+		xyzTET(1,1:3) = [0.0_rp, 0.0_rp, 0.0_rp]
+		xyzTET(2,1:3) = [1.0_rp, 0.0_rp, 0.0_rp]
+		xyzTET(3,1:3) = [0.0_rp, 1.0_rp, 0.0_rp]
+		xyzTET(4,1:3) = [0.0_rp, 0.0_rp, 1.0_rp]
+		call gen_tet_mesh(nelem_t,npoin_t,xyzTET,connec_t,coord_t)
+		!$acc enter data copyin(connec_t,coord_t)
+
+		allocate(He_t(ndime,ndime,ngaus_t,nelem_t))
+		allocate(gpvol_t(1,ngaus_t,nelem_t))
+		!$acc enter data create(He_t,gpvol_t)
+		call tet_jacobian(nelem_t,npoin_t,connec_t,coord_t,dNgp_t,wgp_t,gpvol_t,He_t)
+
+	!
 	! Fluid properties
 	!
 	Cp = 1.0_rp
@@ -339,14 +392,24 @@ program main
 	!
 	allocate(Rmass(npoin), Rmom(npoin,ndime), Rener(npoin))
 	allocate(Dmass(npoin), Dmom(npoin,ndime), Dener(npoin))
+	allocate(Rmass_t(npoin_t), Rmom_t(npoin_t,ndime), Rener_t(npoin_t))
+	allocate(Dmass_t(npoin_t), Dmom_t(npoin_t,ndime), Dener_t(npoin_t))
 	!$acc enter data create(Rmass,Rmom,Rener,Dmass,Dmom,Dener)
+	!$acc enter data create(Rmass_t,Rmom_t,Rener_t,Dmass_t,Dmom_t,Dener_t)
+
 	open(unit=1,file='timers.dat',status='replace')
 	tavg_convec = 0.0d0
+	tavg_convec_tet = 0.0d0
 	tavg_diffu = 0.0d0
+	tavg_diffu_tet = 0.0d0
 	tmax_convec = 0.0d0
+	tmax_convec_tet = 0.0d0
 	tmax_diffu = 0.0d0
+	tmax_diffu_tet = 0.0d0
 	tmin_convec = 1000000.0d0
+	tmin_convec_tet = 1000000.0d0
 	tmin_diffu = 1000000.0d0
+	tmin_diffu_tet = 1000000.0d0
 	call nvtxStartRange("Loop kernels")
 	do i = 1,nruns
 		call nvtxStartRange("Call convective term")
@@ -358,6 +421,17 @@ program main
 		tmin_convec = min(tmin_convec,tconvec)
 		tavg_convec = tavg_convec + tconvec
 		call nvtxEndRange
+
+		call nvtxStartRange("Call convective term TET")
+		tstart = MPI_Wtime()
+		call fem_convec(nelem_t,npoin_t,connec_t,Ngp_t,dNgp_t,He_t,gpvol_t,u,q,rho,pr,E,Rmass_t,Rmom_t,Rener_t)
+		tend = MPI_Wtime()
+		tconv_tet = tend-tstart
+		tmax_convec_tet = max(tmax_convec_tet,tconv_tet)
+		tmin_convec_tet = min(tmin_convec_tet,tconv_tet)
+		tavg_convec_tet = tavg_convec_tet + tconv_tet
+		call nvtxEndRange
+
 		call nvtxStartRange("Call diffusive term")
 		tstart = MPI_Wtime()
 		call full_diffusion_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,Cp,Pra,rho,u,Tem,mu_fluid,mu_e,mu_sgs,Dmass,Dmom,Dener)
@@ -366,7 +440,7 @@ program main
 		tmax_diffu = max(tmax_diffu,tdiffu)
 		tmin_diffu = min(tmin_diffu,tdiffu)
 		tavg_diffu = tavg_diffu + tdiffu
-		write(1,*) i, tconvec, tdiffu
+		write(1,*) i, tconvec, tconv_tet, tdiffu
 		call nvtxEndRange
 	end do
 	call nvtxEndRange
@@ -376,20 +450,25 @@ program main
 	! Write avg times to screen
 	!
 	tavg_convec = tavg_convec / real(nruns,8)
+	tavg_convec_tet = tavg_convec_tet / real(nruns,8)
 	tavg_diffu = tavg_diffu / real(nruns,8)
 
 	write(*,*)
 	write(*,*) 'Timings:'
 	write(*,*) '----------------------------------------'
-	write(*,*) 'Avg. convective time = ', tavg_convec
-	write(*,*) 'Avg. diffusive time  = ', tavg_diffu
-	write(*,*) 'Max. convective time = ', tmax_convec
-	write(*,*) 'Max. diffusive time  = ', tmax_diffu
-	write(*,*) 'Min. convective time = ', tmin_convec
-	write(*,*) 'Min. diffusive time  = ', tmin_diffu
+	write(*,*) 'Avg. convective time     = ', tavg_convec
+	write(*,*) 'Avg. TET convective time = ', tavg_convec_tet
+	write(*,*) 'Avg. diffusive time      = ', tavg_diffu
+	write(*,*) 'Max. convective time     = ', tmax_convec
+	write(*,*) 'Max. TET convective time = ', tmax_convec_tet
+	write(*,*) 'Max. diffusive time      = ', tmax_diffu
+	write(*,*) 'Min. convective time     = ', tmin_convec
+	write(*,*) 'Min. TET convective time = ', tmin_convec_tet
+	write(*,*) 'Min. diffusive time      = ', tmin_diffu
 	write(*,*) '----------------------------------------'
-	write(*,*) 'Variation convec.    = ', (tmax_convec-tmin_convec)/tavg_convec
-	write(*,*) 'Variation diffu.     = ', (tmax_diffu-tmin_diffu)/tavg_diffu
+	write(*,*) 'Variation convec.        = ', (tmax_convec-tmin_convec)/tavg_convec
+	write(*,*) 'Variation TET convec.    = ', (tmax_convec_tet-tmin_convec_tet)/tavg_convec_tet
+	write(*,*) 'Variation diffu.         = ', (tmax_diffu-tmin_diffu)/tavg_diffu
 	write(*,*) '----------------------------------------'
 
 	!
@@ -397,21 +476,32 @@ program main
 	!
 	call nvtxStartRange("Update host results")
 	!$acc update host(Rmass,Rmom,Rener,Dmass,Dmom,Dener)
+	!$acc update host(Rmass_t,Rmom_t,Rener_t,Dmass_t,Dmom_t,Dener_t)
 	call nvtxEndRange
 	write(*,*)
 	write(*,*) 'Basic results:'
 	write(*,*) '----------------------------------------'
+	write(*,*) '--| Convec'
 	write(*,*) 'Max Rmass     = ', maxval(Rmass)    , 'Min Rmass     = ', minval(Rmass)
 	write(*,*) 'Max Rmom(:,1) = ', maxval(Rmom(:,1)), 'Min Rmom(:,1) = ', minval(Rmom(:,1))
 	write(*,*) 'Max Rmom(:,2) = ', maxval(Rmom(:,2)), 'Min Rmom(:,2) = ', minval(Rmom(:,2))
 	write(*,*) 'Max Rmom(:,3) = ', maxval(Rmom(:,3)), 'Min Rmom(:,3) = ', minval(Rmom(:,3))
 	write(*,*) 'Max Rener     = ', maxval(Rener)    , 'Min Rener     = ', minval(Rener)
 	write(*,*) '----------------------------------------'
+	write(*,*) '--| Diffu'
 	write(*,*) 'Max Dmass     = ', maxval(Dmass)    , 'Min Dmass     = ', minval(Dmass)
 	write(*,*) 'Max Dmom(:,1) = ', maxval(Dmom(:,1)), 'Min Dmom(:,1) = ', minval(Dmom(:,1))
 	write(*,*) 'Max Dmom(:,2) = ', maxval(Dmom(:,2)), 'Min Dmom(:,2) = ', minval(Dmom(:,2))
 	write(*,*) 'Max Dmom(:,3) = ', maxval(Dmom(:,3)), 'Min Dmom(:,3) = ', minval(Dmom(:,3))
 	write(*,*) 'Max Dener     = ', maxval(Dener)    , 'Min Dener     = ', minval(Dener)
+	write(*,*) 'Basic TET results:'
+	write(*,*) '----------------------------------------'
+	write(*,*) '--| Convec'
+	write(*,*) 'Max Rmass     = ', maxval(Rmass_t)    , 'Min Rmass     = ', minval(Rmass_t)
+	write(*,*) 'Max Rmom(:,1) = ', maxval(Rmom_t(:,1)), 'Min Rmom(:,1) = ', minval(Rmom_t(:,1))
+	write(*,*) 'Max Rmom(:,2) = ', maxval(Rmom_t(:,2)), 'Min Rmom(:,2) = ', minval(Rmom_t(:,2))
+	write(*,*) 'Max Rmom(:,3) = ', maxval(Rmom_t(:,3)), 'Min Rmom(:,3) = ', minval(Rmom_t(:,3))
+	write(*,*) 'Max Rener     = ', maxval(Rener_t)    , 'Min Rener     = ', minval(Rener_t)
 
 	!
 	! Write results to file
