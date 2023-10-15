@@ -18,7 +18,7 @@ program main
 	!
 	! Mesh vars not in mod_constants
 	!
-	integer(4), parameter   :: nelem = 4*300
+	integer(4), parameter   :: nelem = 4*2000
 	integer(4), parameter   :: npoin = nelem * nnode
 	integer(4), allocatable :: connec(:,:)
 	real(rp)  , allocatable :: coord(:,:), He(:,:,:,:), gpvol(:,:,:)
@@ -33,7 +33,7 @@ program main
 	!
 	! Loop variables
 	!
-	integer(4), parameter   :: nruns = 100
+	integer(4), parameter   :: nruns = 200
 	integer(4)              :: ielem, inode, igaus, ipoin, iorder, jnode, i, j, k
 
 	!
@@ -72,6 +72,7 @@ program main
 	real(rp)  , allocatable :: wgp_t(:), xgp_t(:,:)
 	real(rp),   allocatable :: Rmass_t(:), Rmom_t(:,:), Rener_t(:)
 	real(rp),   allocatable :: Dmass_t(:), Dmom_t(:,:), Dener_t(:)
+	real(rp),   allocatable :: mu_e_t(:,:), mu_sgs_t(:,:)
 
 	!
 	! Initialize the MPI environment
@@ -381,6 +382,13 @@ program main
 		!$acc enter data create(He_t,gpvol_t)
 		call tet_jacobian(nelem_t,npoin_t,connec_t,coord_t,dNgp_t,wgp_t,gpvol_t,He_t)
 
+		allocate(mu_e_t(nelem_t,nnode_t), mu_sgs_t(nelem_t,nnode_t))
+		!$acc enter data create(mu_e_t,mu_sgs_t)
+		!$acc kernels present(mu_e_t,mu_sgs_t)
+		mu_e_t(:,:) = 1.0_rp
+		mu_sgs_t(:,:) = 1.0_rp
+		!$acc end kernels
+
 	!
 	! Fluid properties
 	!
@@ -440,11 +448,23 @@ program main
 		tmax_diffu = max(tmax_diffu,tdiffu)
 		tmin_diffu = min(tmin_diffu,tdiffu)
 		tavg_diffu = tavg_diffu + tdiffu
-		write(1,*) i, tconvec, tconv_tet, tdiffu
 		call nvtxEndRange
+
+		call nvtxStartRange("Call diffusive term TET")
+		tstart = MPI_Wtime()
+		call fem_diffu(nelem_t,npoin_t,connec_t,Ngp_t,dNgp_t,He_t,gpvol_t,Cp,Pra,rho,u,Tem,mu_fluid,mu_e_t,mu_sgs_t,Dmass_t,Dmom_t,Dener_t)
+		tend = MPI_Wtime()
+		tdiff_tet = tend-tstart
+		tmax_diffu_tet = max(tmax_diffu_tet,tdiff_tet)
+		tmin_diffu_tet = min(tmin_diffu_tet,tdiff_tet)
+		tavg_diffu_tet = tavg_diffu_tet + tdiff_tet
+		call nvtxEndRange
+
+		write(1,10) i, tconvec, tconv_tet, tdiffu, tdiff_tet
 	end do
 	call nvtxEndRange
 	close(1)
+	10 format(i3,1x,4(f16.8,1x))
 
 	!
 	! Write avg times to screen
@@ -452,6 +472,7 @@ program main
 	tavg_convec = tavg_convec / real(nruns,8)
 	tavg_convec_tet = tavg_convec_tet / real(nruns,8)
 	tavg_diffu = tavg_diffu / real(nruns,8)
+	tavg_diffu_tet = tavg_diffu_tet / real(nruns,8)
 
 	write(*,*)
 	write(*,*) 'Timings:'
@@ -459,16 +480,20 @@ program main
 	write(*,*) 'Avg. convective time     = ', tavg_convec
 	write(*,*) 'Avg. TET convective time = ', tavg_convec_tet
 	write(*,*) 'Avg. diffusive time      = ', tavg_diffu
+	write(*,*) 'Avg. TET diffusive time  = ', tavg_diffu_tet
 	write(*,*) 'Max. convective time     = ', tmax_convec
 	write(*,*) 'Max. TET convective time = ', tmax_convec_tet
 	write(*,*) 'Max. diffusive time      = ', tmax_diffu
+	write(*,*) 'Max. TET diffusive time  = ', tmax_diffu_tet
 	write(*,*) 'Min. convective time     = ', tmin_convec
 	write(*,*) 'Min. TET convective time = ', tmin_convec_tet
 	write(*,*) 'Min. diffusive time      = ', tmin_diffu
+	write(*,*) 'Min. TET diffusive time  = ', tmin_diffu_tet
 	write(*,*) '----------------------------------------'
 	write(*,*) 'Variation convec.        = ', (tmax_convec-tmin_convec)/tavg_convec
 	write(*,*) 'Variation TET convec.    = ', (tmax_convec_tet-tmin_convec_tet)/tavg_convec_tet
 	write(*,*) 'Variation diffu.         = ', (tmax_diffu-tmin_diffu)/tavg_diffu
+	write(*,*) 'Variation TET diffu.     = ', (tmax_diffu_tet-tmin_diffu_tet)/tavg_diffu_tet
 	write(*,*) '----------------------------------------'
 
 	!
@@ -502,6 +527,13 @@ program main
 	write(*,*) 'Max Rmom(:,2) = ', maxval(Rmom_t(:,2)), 'Min Rmom(:,2) = ', minval(Rmom_t(:,2))
 	write(*,*) 'Max Rmom(:,3) = ', maxval(Rmom_t(:,3)), 'Min Rmom(:,3) = ', minval(Rmom_t(:,3))
 	write(*,*) 'Max Rener     = ', maxval(Rener_t)    , 'Min Rener     = ', minval(Rener_t)
+	write(*,*) '----------------------------------------'
+	write(*,*) '--| Diffu'
+	write(*,*) 'Max Dmass     = ', maxval(Dmass_t)    , 'Min Dmass     = ', minval(Dmass_t)
+	write(*,*) 'Max Dmom(:,1) = ', maxval(Dmom_t(:,1)), 'Min Dmom(:,1) = ', minval(Dmom_t(:,1))
+	write(*,*) 'Max Dmom(:,2) = ', maxval(Dmom_t(:,2)), 'Min Dmom(:,2) = ', minval(Dmom_t(:,2))
+	write(*,*) 'Max Dmom(:,3) = ', maxval(Dmom_t(:,3)), 'Min Dmom(:,3) = ', minval(Dmom_t(:,3))
+	write(*,*) 'Max Dener     = ', maxval(Dener_t)    , 'Min Dener     = ', minval(Dener_t)
 
 	!
 	! Write results to file
