@@ -11,12 +11,10 @@ set(TEST_VERSION "${TEST_VERSION_MAJOR}.${TEST_VERSION_MINOR}.${TEST_VERSION_PAT
 option(UNIT_TESTING "Enable unit tests" OFF)
 option(USE_MPI "Compile using MPI" ON)
 
-option(USE_PCPOWER "Compiling in PC-POWER" OFF)
-option(USE_MN "Compiling in MareNostrum" OFF)
 option(USE_CRAY "Compiling with CrayMpi" OFF)
 option(SHARED_LIBS "Compile using shared libraries" OFF)
 
-option(USE_GPU "Compile using GPU" OFF)
+option(USE_GPU "Compile using GPU" ON)
 option(USE_MEM_MANAGED "Compile using Mem managed" OFF)
 
 # Folder with files configuring extra CMake options
@@ -41,6 +39,7 @@ project(App_TMU LANGUAGES C CXX Fortran)
 include(mpi)
 
 # Configure compiler options
+include(gpu)
 include(compilerOps)
 
 # use, i.e. don't skip the full RPATH for the build tree

@@ -196,4 +196,124 @@ module elem_diffu
                      call nvtxEndRange
               end subroutine full_diffusion_ijk
 
+              subroutine fem_diffu(nelem,npoin,connec,Ngp,dNgp,He,gpvol,Cp,Pr,rho,u,Tem,mu_fluid,mu_e,mu_sgs,Rmass,Rmom,Rener)
+                  implicit none
+                  integer(4), intent(in)  :: nelem, npoin
+                  integer(4), intent(in)  :: connec(nelem,4)
+                  real(rp),   intent(in)  :: Ngp(4,4), dNgp(ndime,4,4)
+                  real(rp),   intent(in)  :: He(ndime,ndime,4,nelem)
+                  real(rp),   intent(in)  :: gpvol(1,4,nelem)
+                  real(rp),   intent(in)  :: Cp,Pr,rho(npoin),u(npoin,ndime), Tem(npoin), mu_e(nelem,4), mu_sgs(nelem,4)
+                  real(rp),   intent(in)  :: mu_fluid(npoin)
+                  real(rp),   intent(out) :: Rmass(npoin)
+                  real(rp),   intent(out) :: Rmom(npoin,ndime)
+                  real(rp),   intent(out) :: Rener(npoin)
+                  integer(4)              :: ielem, igaus, inode, idime, jdime, jnode
+                  real(rp)                :: divU, tauU(ndime), tau(ndime,ndime)
+                  real(rp)                :: gradU(ndime,ndime), gradT(ndime), gradRho(ndime), gpcar(4,ndime)
+                  real(rp)                :: Re_mass(4), Re_ener(4), Re_mom(4,ndime), auxRho, auxU, auxMu, auxNu, auxKappa
+
+                  call nvtxStartRange("FEM diffu")
+                  !$acc kernels
+                  Rmass(:) = 0.0_rp
+                  Rener(:) = 0.0_rp
+                  Rmom(:,:) = 0.0_rp
+                  !$acc end kernels
+
+                  !$acc parallel loop gang private(Re_mass, Re_ener, Re_mom, gpcar) present(connec,rho,u,Tem,mu_fluid,mu_e,mu_sgs,He,gpvol,Rmass,Rmom,Rener)
+                  do ielem = 1,nelem
+                     Re_mass(:) = 0.0_rp
+                     Re_ener(:) = 0.0_rp
+                     Re_mom(:,:) = 0.0_rp
+                     !$acc loop seq private(gradRho, gradU, gradT, tau, tauU, divU)
+                     do igaus = 1,4
+                        !
+                        ! Fluid props
+                        !
+                        auxRho = 0.0_rp
+                        auxNu = 0.0_rp
+                        auxMu = 0.0_rp
+                        auxKappa = 0.0_rp
+                        do inode = 1,4
+                           auxRho = auxRho + Ngp(inode,igaus) * rho(connec(ielem,inode))
+                        end do
+                        do inode = 1,4
+                           auxNu = auxNu + Ngp(inode,igaus)*mu_e(ielem,inode)*(c_rho / auxRho)
+                           auxMu = auxMu + Ngp(inode,igaus) * ( mu_fluid(connec(ielem,inode)) + auxRho*mu_sgs(ielem,inode) + mu_e(ielem,inode) )
+                           auxKappa = auxKappa + Ngp(inode,igaus) * ( mu_fluid(connec(ielem,inode))*(Cp/Pr) + c_ener*mu_e(ielem,inode)/0.4_rp + auxRho*mu_sgs(ielem,inode)/0.9_rp )
+                        end do
+                        !
+                        ! GPCAR
+                        !
+                        do idime = 1,ndime
+                           do inode = 1,4
+                              gpcar(inode,idime) = DOT_PRODUCT(He(idime,:,igaus,ielem),dNgp(:,inode,igaus))
+                           end do
+                        end do
+                        !
+                        ! Gradients and divU
+                        !
+                        divU = 0.0_rp
+                        gradRho(:) = 0.0_rp
+                        gradT(:) = 0.0_rp
+                        gradU(:,:) = 0.0_rp
+                        do idime = 1,ndime
+                           do inode = 1,4
+                              gradRho(idime) = gradRho(idime) + gpcar(inode,idime)*rho(connec(ielem,inode))
+                              gradT(idime)   = gradT(idime)   + gpcar(inode,idime)*Tem(connec(ielem,inode))
+                              do jdime = 1,ndime
+                                 gradU(idime,jdime) = gradU(idime,jdime) + gpcar(inode,idime)*u(connec(ielem,inode),jdime)
+                              end do
+                           end do
+                        end do
+                        divU = gradU(1,1) + gradU(2,2) + gradU(3,3)
+                        !
+                        ! Tau and TauU (no mu applied)
+                        !
+                        tau(:,:) = 0.0_rp
+                        tauU(:) = 0.0_rp
+                        do idime = 1,ndime
+                           tau(idime,idime) = -(2.0_rp/3.0_rp)*divU
+                           do jdime = 1,ndime
+                              tau(idime,jdime) = tau(idime,jdime) + gradU(idime,jdime) + gradU(jdime,idime)
+                           end do
+                        end do
+                        do jdime = 1,ndime
+                           auxU = 0.0_rp
+                           do inode = 1,4
+                              auxU = auxU + Ngp(inode,igaus)*u(connec(ielem,inode),jdime)
+                           end do
+                           do idime = 1,ndime
+                              tauU(idime) = tauU(idime) + tau(idime,jdime)*auxU
+                           end do
+                        end do
+                        !
+                        ! Local residuals
+                        !
+                        do idime = 1,ndime
+                           do inode = 1,4
+                              Re_mass(inode) = Re_mass(inode) + gpvol(1,igaus,ielem)*auxNu*gpcar(inode,idime)*gradRho(idime)
+                              Re_ener(inode) = Re_ener(inode) + gpvol(1,igaus,ielem)*gpcar(inode,idime)*(auxMu*tauU(idime)+auxKappa*gradT(idime))
+                              do jdime = 1,ndime
+                                 Re_mom(inode,idime) = Re_mom(inode,idime) + gpvol(1,igaus,ielem)*gpcar(inode,jdime)*auxMu*tau(idime,jdime)
+                              end do
+                           end do
+                        end do
+                     end do
+                     !
+                     ! Assembly
+                     !
+                     do inode = 1,4
+                        Rmass(connec(ielem,inode)) = Rmass(connec(ielem,inode)) + Re_mass(inode)
+                        Rener(connec(ielem,inode)) = Rener(connec(ielem,inode)) + Re_ener(inode)
+                        do idime = 1,ndime
+                           Rmom(connec(ielem,inode),idime) = Rmom(connec(ielem,inode),idime) + Re_mom(inode,idime)
+                        end do
+                     end do
+                  end do
+                  !$acc end parallel loop
+                  call nvtxEndRange
+
+              end subroutine fem_diffu
+
 end module elem_diffu

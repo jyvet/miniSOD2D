@@ -81,4 +81,21 @@ contains
 
 		end subroutine GaussLobattoLegendre_hex
 
+		subroutine tet_4points(xgp,wgp)
+		
+			implicit none
+			real(rp),intent(out) :: xgp(4,ndime),wgp(4)
+
+			xgp(1,1:3) = [0.5854101966249680_rp, 0.1381966011250110_rp, 0.1381966011250110_rp]
+			xgp(2,1:3) = [0.1381966011250110_rp, 0.5854101966249680_rp, 0.1381966011250110_rp]
+			xgp(3,1:3) = [0.1381966011250110_rp, 0.1381966011250110_rp, 0.5854101966249680_rp]
+			xgp(4,1:3) = [0.1381966011250110_rp, 0.1381966011250110_rp, 0.1381966011250110_rp]
+
+			wgp(1) = 0.2500000000000000_rp
+			wgp(2) = 0.2500000000000000_rp
+			wgp(3) = 0.2500000000000000_rp
+			wgp(4) = 0.2500000000000000_rp
+
+		end subroutine tet_4points
+
 end module quadrature_rules
