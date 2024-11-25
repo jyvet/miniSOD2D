@@ -450,15 +450,15 @@ program main
 		tavg_diffu = tavg_diffu + tdiffu
 		call nvtxEndRange
 
-		call nvtxStartRange("Call diffusive term TET")
-		tstart = MPI_Wtime()
-		call fem_diffu(nelem_t,npoin_t,connec_t,Ngp_t,dNgp_t,He_t,gpvol_t,Cp,Pra,rho,u,Tem,mu_fluid,mu_e_t,mu_sgs_t,Dmass_t,Dmom_t,Dener_t)
-		tend = MPI_Wtime()
-		tdiff_tet = tend-tstart
-		tmax_diffu_tet = max(tmax_diffu_tet,tdiff_tet)
-		tmin_diffu_tet = min(tmin_diffu_tet,tdiff_tet)
-		tavg_diffu_tet = tavg_diffu_tet + tdiff_tet
-		call nvtxEndRange
+		!call nvtxStartRange("Call diffusive term TET")
+		!tstart = MPI_Wtime()
+		!call fem_diffu(nelem_t,npoin_t,connec_t,Ngp_t,dNgp_t,He_t,gpvol_t,Cp,Pra,rho,u,Tem,mu_fluid,mu_e_t,mu_sgs_t,Dmass_t,Dmom_t,Dener_t)
+		!tend = MPI_Wtime()
+		!tdiff_tet = tend-tstart
+		!tmax_diffu_tet = max(tmax_diffu_tet,tdiff_tet)
+		!tmin_diffu_tet = min(tmin_diffu_tet,tdiff_tet)
+		!tavg_diffu_tet = tavg_diffu_tet + tdiff_tet
+		!call nvtxEndRange
 
 		write(1,10) i, tconvec, tconv_tet, tdiffu, tdiff_tet
 	end do
@@ -480,20 +480,20 @@ program main
 	write(*,*) 'Avg. convective time     = ', tavg_convec
 	write(*,*) 'Avg. TET convective time = ', tavg_convec_tet
 	write(*,*) 'Avg. diffusive time      = ', tavg_diffu
-	write(*,*) 'Avg. TET diffusive time  = ', tavg_diffu_tet
+	!write(*,*) 'Avg. TET diffusive time  = ', tavg_diffu_tet
 	write(*,*) 'Max. convective time     = ', tmax_convec
 	write(*,*) 'Max. TET convective time = ', tmax_convec_tet
 	write(*,*) 'Max. diffusive time      = ', tmax_diffu
-	write(*,*) 'Max. TET diffusive time  = ', tmax_diffu_tet
+	!write(*,*) 'Max. TET diffusive time  = ', tmax_diffu_tet
 	write(*,*) 'Min. convective time     = ', tmin_convec
 	write(*,*) 'Min. TET convective time = ', tmin_convec_tet
 	write(*,*) 'Min. diffusive time      = ', tmin_diffu
-	write(*,*) 'Min. TET diffusive time  = ', tmin_diffu_tet
+	!write(*,*) 'Min. TET diffusive time  = ', tmin_diffu_tet
 	write(*,*) '----------------------------------------'
 	write(*,*) 'Variation convec.        = ', (tmax_convec-tmin_convec)/tavg_convec
 	write(*,*) 'Variation TET convec.    = ', (tmax_convec_tet-tmin_convec_tet)/tavg_convec_tet
 	write(*,*) 'Variation diffu.         = ', (tmax_diffu-tmin_diffu)/tavg_diffu
-	write(*,*) 'Variation TET diffu.     = ', (tmax_diffu_tet-tmin_diffu_tet)/tavg_diffu_tet
+	!write(*,*) 'Variation TET diffu.     = ', (tmax_diffu_tet-tmin_diffu_tet)/tavg_diffu_tet
 	write(*,*) '----------------------------------------'
 
 	!
