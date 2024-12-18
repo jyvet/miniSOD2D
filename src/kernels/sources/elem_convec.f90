@@ -60,6 +60,10 @@ module elem_convec
                   rhol(inode) = rho(ipoin(inode))
                   prl(inode) = pr(ipoin(inode))
                end do
+            end do
+            !$acc end parallel
+            !$acc parallel loop tile(16,32) private(ipoin,idime,jdime,kdime,Re_mom,ul,ql,rhol,prl,fl,fuul) !!vector_length(vecLength)
+            do ielem = 1,nelem
                !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoP,gradIsoU,gradIsoF,gradIsoFuu,gradIsoQ,gradRho,gradP,gradRE,gradU,divF,divU,divQ,gradQ,divFuu,isoI,isoJ,isoK,ii)
                do igaus = 1,ngaus
                   !$acc loop seq
@@ -146,6 +150,10 @@ module elem_convec
                      Re_mom(igaus,idime) = gpvol(1,igaus,ielem)*Re_mom(igaus,idime)
                   end do
                end do
+            end do
+            !$acc end parallel loop
+            !$acc parallel loop gang private(ipoin,idime,jdime,kdime,Re_mom,ul,ql,rhol,prl,fl,fuul) !!vector_length(vecLength)
+            do ielem = 1,nelem
                !
                ! Final assembly
                !
@@ -216,6 +224,10 @@ module elem_convec
                   REl(inode) = rho(ipoin(inode))*E(ipoin(inode))
                   Rkl(inode) = rho(ipoin(inode))*kl(inode)
                end do
+            end do
+            !$acc end parallel loop
+            !$acc parallel loop tile(16,32) private(ipoin,idime,jdime,kdime,Re_ener,ul,ql,rhol,El,REl,fel,fuel,kl,Rkl,fkl,fukl) !!vector_length(vecLength)
+            do ielem = 1,nelem
                !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoRE,gradIsoRk,gradIsoE,gradIsok,gradIsoU,gradIsoF,gradIsoFuu,gradIsoQ,gradIsoFe,gradIsoFue,gradIsoFk,gradIsoFuk,gradRho,gradE,gradRE,gradk,gradRk,gradU,divU,divQ,divFe,divFue,divFk,divFuk,gradQ,isoI,isoJ,isoK,ii)
                do igaus = 1,ngaus
                   !$acc loop seq
@@ -334,6 +346,10 @@ module elem_convec
                   end do
                   Re_ener(igaus) = gpvol(1,igaus,ielem)*Re_ener(igaus)
                end do
+            end do
+            !$acc end parallel loop
+            !$acc parallel loop gang private(ipoin,idime,jdime,kdime,Re_ener,ul,ql,rhol,El,REl,fel,fuel,kl,Rkl,fkl,fukl) !!vector_length(vecLength)
+            do ielem = 1,nelem
                !
                ! Final assembly
                !
@@ -386,7 +402,10 @@ module elem_convec
                      ql(inode,idime) = q(ipoin(inode),idime)
                   end do
                end do
- 
+            end do 
+            !$acc end parallel loop
+            !$acc parallel loop tile(16,32) private(ipoin,idime,jdime,kdime,Re_mass,ul,ql,rhol) !!vector_length(vecLength)
+            do ielem = 1,nelem
                !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoU,gradIsoQ,gradRho,gradU,divU,divQ,gradQ,isoI,isoJ,isoK,ii)
                do igaus = 1,ngaus
                   !$acc loop seq
@@ -446,6 +465,10 @@ module elem_convec
                   end do
                   Re_mass(igaus) = gpvol(1,igaus,ielem)*Re_mass(igaus)
                end do
+            end do 
+            !$acc end parallel loop
+            !$acc parallel loop gang private(ipoin,idime,jdime,kdime,Re_mass,ul,ql,rhol) !!vector_length(vecLength)
+            do ielem = 1,nelem
                !
                ! Final assembly
                !
