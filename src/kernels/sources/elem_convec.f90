@@ -46,6 +46,11 @@ module elem_convec
                      ql(inode,idime) = q(ipoin(inode),idime)
                   end do
                end do
+               !$acc loop vector
+               do inode = 1,nnode
+                  rhol(inode) = rho(ipoin(inode))
+                  prl(inode) = pr(ipoin(inode))
+               end do
                !$acc loop vector collapse(3)
                do idime = 1,ndime
                   do jdime = 1,ndime
@@ -55,11 +60,7 @@ module elem_convec
                      end do
                   end do
                end do
-               !$acc loop vector
-               do inode = 1,nnode
-                  rhol(inode) = rho(ipoin(inode))
-                  prl(inode) = pr(ipoin(inode))
-               end do
+               !$acc cache(fl(1:nnode,1:ndime,1:ndime) readonly, fuul(1:nnode,1:ndime,1:ndime) readonly)
                !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoP,gradIsoU,gradIsoF,gradIsoFuu,gradIsoQ,gradRho,gradP,gradRE,gradU,divF,divU,divQ,gradQ,divFuu,isoI,isoJ,isoK,ii)
                do igaus = 1,ngaus
                   !$acc loop seq
@@ -198,6 +199,13 @@ module elem_convec
                      kl(inode) = kl(inode) + u(ipoin(inode),idime)*u(ipoin(inode),idime)*0.5_rp
                   end do
                end do
+               !$acc loop vector
+               do inode = 1,nnode
+                  rhol(inode) = rho(ipoin(inode))
+                  El(inode) = E(ipoin(inode))
+                  REl(inode) = rho(ipoin(inode))*E(ipoin(inode))
+                  Rkl(inode) = rho(ipoin(inode))*kl(inode)
+               end do
                !$acc loop vector collapse(2)
                do idime = 1,ndime
                   do inode = 1,nnode
@@ -209,13 +217,7 @@ module elem_convec
                      fukl(inode,idime) = kl(inode)*u(ipoin(inode),idime)
                   end do
                end do
-               !$acc loop vector
-               do inode = 1,nnode
-                  rhol(inode) = rho(ipoin(inode))
-                  El(inode) = E(ipoin(inode))
-                  REl(inode) = rho(ipoin(inode))*E(ipoin(inode))
-                  Rkl(inode) = rho(ipoin(inode))*kl(inode)
-               end do
+               !$acc cache(ul(1:nnode,1:ndime) readonly,ql(1:nnode,1:ndime) readonly,fel(1:nnode,1:ndime) readonly,fuel(1:nnode,1:ndime) readonly,fkl(1:nnode,1:ndime) readonly,fukl(1:nnode,1:ndime) readonly)
                !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoRE,gradIsoRk,gradIsoE,gradIsok,gradIsoU,gradIsoF,gradIsoFuu,gradIsoQ,gradIsoFe,gradIsoFue,gradIsoFk,gradIsoFuk,gradRho,gradE,gradRE,gradk,gradRk,gradU,divU,divQ,divFe,divFue,divFk,divFuk,gradQ,isoI,isoJ,isoK,ii)
                do igaus = 1,ngaus
                   !$acc loop seq
@@ -386,7 +388,7 @@ module elem_convec
                      ql(inode,idime) = q(ipoin(inode),idime)
                   end do
                end do
- 
+               !$acc cache(ul(1:nnode,1:ndime) readonly, ql(1:nnode,1:ndime) readonly)
                !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoU,gradIsoQ,gradRho,gradU,divU,divQ,gradQ,isoI,isoJ,isoK,ii)
                do igaus = 1,ngaus
                   !$acc loop seq

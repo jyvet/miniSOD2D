@@ -63,7 +63,8 @@ module elem_diffu
                          gradTl(:,:) = 0.0_rp
                          gradRhol(:,:) = 0.0_rp
                          tauUl(:,:) = 0.0_rp
-
+                        
+                         !$acc cache(ul(1:nnode,1:ndime) readonly)
                          !$acc loop vector private(tau,gradU,gradT,tauU,gradIsoRho,gradIsoT,gradIsoU,gradRho,divU)
                          do igaus = 1,ngaus
                             nu_e = c_rho*mu_e(ielem,igaus)/rhol(igaus)
