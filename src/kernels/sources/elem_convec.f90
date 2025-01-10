@@ -39,27 +39,6 @@ module elem_convec
                do inode = 1,nnode
                   ipoin(inode) = connec(ielem,inode)
                end do
-               !$acc loop vector collapse(2)
-               do idime = 1,ndime
-                  do inode = 1,nnode
-                     ul(inode,idime) = u(ipoin(inode),idime)
-                     ql(inode,idime) = q(ipoin(inode),idime)
-                  end do
-               end do
-               !$acc loop vector collapse(3)
-               do idime = 1,ndime
-                  do jdime = 1,ndime
-                     do inode = 1,nnode
-                        fl(inode,idime,jdime)  = q(ipoin(inode),idime)*u(ipoin(inode),jdime)
-                        fuul(inode,idime,jdime)  = u(ipoin(inode),idime)*u(ipoin(inode),jdime)
-                     end do
-                  end do
-               end do
-               !$acc loop vector
-               do inode = 1,nnode
-                  rhol(inode) = rho(ipoin(inode))
-                  prl(inode) = pr(ipoin(inode))
-               end do
                !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoP,gradIsoU,gradIsoF,gradIsoFuu,gradIsoQ,gradRho,gradP,gradRE,gradU,divF,divU,divQ,gradQ,divFuu,isoI,isoJ,isoK,ii)
                do igaus = 1,ngaus
                   !$acc loop seq
