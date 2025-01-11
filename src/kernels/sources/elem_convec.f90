@@ -515,23 +515,22 @@ module elem_convec
             Rmom(:,:) = 0.0_rp
             Rmass(:) = 0.0_rp
             Rener(:) = 0.0_rp
+            gpcar(:,:) = 0.0_rp
+            gradU(:,:) = 0.0_rp
+            divU = 0.0_rp
             !$acc end kernels
 
-            !$acc parallel loop gang private(Re_ener,Re_mass,Re_mom,ul,ql,rhol,prl,El,fl,fel,ipoin) present(connec,u,q,rho,pr,E,Rmass,Rmom,Rener)
+            !$acc parallel loop gang private(Re_ener,ipoin) present(connec,u,q,rho,pr,E,Rener)
             do ielem = 1,nelem
                Re_mass(:) = 0.0_rp
                Re_ener(:) = 0.0_rp
                Re_mom(:,:) = 0.0_rp
 
-               !$acc loop seq private(divQ, divFe, gradRho, gradP, gradE, gradU, divF, divU, gpcar, aux1, aux2, aux3, aux4)
+               !$acc loop seq private(divFe, gradE, aux2)
                do igaus = 1,4
-                  divQ = 0.0_rp
                   divFe = 0.0_rp
-                  gradRho(:) = 0.0_rp
                   gradE(:) = 0.0_rp
-                  gradP(:) = 0.0_rp
                   gradU(:,:) = 0.0_rp
-                  divF(:) = 0.0_rp
 
                   !$acc loop seq
                   do idime = 1,ndime
@@ -545,16 +544,12 @@ module elem_convec
                   do idime = 1,ndime
                      !$acc loop seq
                      do jnode = 1,4
-                        divQ = divQ + gpcar(jnode,idime)*q(connec(ielem,jnode),idime)
                         divFe = divFe + gpcar(jnode,idime)*(E(connec(ielem,jnode))+pr(connec(ielem,jnode)))*u(connec(ielem,jnode),idime)
-                        gradRho(idime) = gradRho(idime) + gpcar(jnode,idime)*rho(connec(ielem,jnode))
                         gradE(idime) = gradE(idime) + gpcar(jnode,idime)*(E(connec(ielem,jnode))+pr(connec(ielem,jnode)))
-                        gradP(idime) = gradP(idime) + gpcar(jnode,idime)*pr(connec(ielem,jnode))
 
                         !$acc loop seq
                         do jdime = 1,ndime
                            gradU(idime,jdime) = gradU(idime,jdime) + gpcar(jnode,jdime)*u(connec(ielem,jnode),idime)
-                           divF(idime) = divF(idime) + gpcar(jnode,jdime)*q(connec(ielem,jnode),idime)*u(connec(ielem,jnode),jdime)
                         end do
                      end do
                   end do
@@ -563,18 +558,103 @@ module elem_convec
 
                   !$acc loop seq
                   do inode = 1,4
-                     aux1 = 0.0_rp
                      aux2 = 0.0_rp
 
                      !$acc loop seq
                      do idime = 1,ndime
-                        aux1 = aux1 + gradRho(idime)*u(connec(ielem,inode),idime)
                         aux2 = aux2 + gradE(idime)*u(connec(ielem,inode),idime)
                      end do
 
-                     Re_mass(inode) = Re_mass(inode) + gpvol(1,igaus,ielem)*Ngp(igaus,inode)*0.5_rp*(divQ + rho(connec(ielem,inode))*divU + aux1)
                      Re_ener(inode) = Re_ener(inode) + gpvol(1,igaus,ielem)*Ngp(igaus,inode)*0.5_rp*(divFe + (E(connec(ielem,inode))+pr(connec(ielem,inode)))*divU + aux2)
+                  end do
+               end do
 
+               !
+               ! Assembly
+               !
+               do inode = 1,4
+                  !$acc atomic update
+                  Rener(connec(ielem,inode)) = Rener(connec(ielem,inode)) + Re_ener(inode)
+               end do
+            end do
+            !$acc end parallel loop
+
+            !$acc parallel loop gang private(Re_mass,ipoin) present(connec,u,q,rho,pr,E,Rmass)
+            do ielem = 1,nelem
+               Re_mass(:) = 0.0_rp
+               Re_ener(:) = 0.0_rp
+               Re_mom(:,:) = 0.0_rp
+
+
+               !$acc loop seq private(divQ, gradRho, aux1)
+               do igaus = 1,4
+                  divQ = 0.0_rp
+                  gradRho(:) = 0.0_rp
+                  gradU(:,:) = 0.0_rp
+
+
+                  !$acc loop seq
+                  do idime = 1,ndime
+                     !$acc loop seq
+                     do jnode = 1,4
+                        divQ = divQ + gpcar(jnode,idime)*q(connec(ielem,jnode),idime)
+                        gradRho(idime) = gradRho(idime) + gpcar(jnode,idime)*rho(connec(ielem,jnode))
+
+                     end do
+                  end do
+
+                  !$acc loop seq
+                  do inode = 1,4
+                     aux1 = 0.0_rp
+
+                     !$acc loop seq
+                     do idime = 1,ndime
+                        aux1 = aux1 + gradRho(idime)*u(connec(ielem,inode),idime)
+                     end do
+
+                     Re_mass(inode) = Re_mass(inode) + gpvol(1,igaus,ielem)*Ngp(igaus,inode)*0.5_rp*(divQ + rho(connec(ielem,inode))*divU + aux1)
+                  end do
+               end do
+
+               !
+               ! Assembly
+               !
+               do inode = 1,4
+                  !$acc atomic update
+                  Rmass(connec(ielem,inode)) = Rmass(connec(ielem,inode)) + Re_mass(inode)
+                  !$acc end atomic
+               end do
+            end do
+            !$acc end parallel loop
+
+            !$acc parallel loop gang private(Re_mom,ipoin) present(connec,u,q,rho,pr,Rmom)
+            do ielem = 1,nelem
+               Re_mass(:) = 0.0_rp
+               Re_ener(:) = 0.0_rp
+               Re_mom(:,:) = 0.0_rp
+
+               !$acc loop seq private(gradP, gradU, aux3, aux4)
+               do igaus = 1,4
+                  gradP(:) = 0.0_rp
+                  gradU(:,:) = 0.0_rp
+                  divF(:) = 0.0_rp
+
+                  !$acc loop seq
+                  do idime = 1,ndime
+                     !$acc loop seq
+                     do jnode = 1,4
+                        gradP(idime) = gradP(idime) + gpcar(jnode,idime)*pr(connec(ielem,jnode))
+
+                        !$acc loop seq
+                        do jdime = 1,ndime
+                           divF(idime) = divF(idime) + gpcar(jnode,jdime)*q(connec(ielem,jnode),idime)*u(connec(ielem,jnode),jdime)
+                        end do
+                     end do
+                  end do
+
+
+                  !$acc loop seq
+                  do inode = 1,4
                      !$acc loop seq
                      do idime = 1,ndime
                         aux3 = 0.0_rp
@@ -595,12 +675,6 @@ module elem_convec
                ! Assembly
                !
                do inode = 1,4
-                  !$acc atomic update
-                  Rmass(connec(ielem,inode)) = Rmass(connec(ielem,inode)) + Re_mass(inode)
-                  !$acc end atomic
-                  !$acc atomic update
-                  Rener(connec(ielem,inode)) = Rener(connec(ielem,inode)) + Re_ener(inode)
-                  !$acc end atomic
                   do idime = 1,ndime
                      !$acc atomic update
                      Rmom(connec(ielem,inode),idime) = Rmom(connec(ielem,inode),idime) + Re_mom(inode,idime)
