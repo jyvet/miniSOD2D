@@ -490,7 +490,7 @@ module elem_convec
             call nvtxEndRange
          end subroutine full_convec_ijk
 
-         subroutine fem_convec(nelem,npoin,connec,Ngp,dNgp,He,gpvol,u,q,rho,pr,E,Rmass,Rmom,Rener)
+         subroutine fem_convec_ener(nelem,npoin,connec,Ngp,dNgp,He,gpvol,u,q,rho,pr,E,Rener)
 
             implicit none
             integer(4), intent(in)  :: nelem, npoin
@@ -499,21 +499,16 @@ module elem_convec
             real(rp),    intent(in)  :: He(ndime,ndime,4,nelem)
             real(rp),    intent(in)  :: gpvol(1,4,nelem)
             real(rp),    intent(in)  :: q(npoin,ndime), u(npoin,ndime), rho(npoin),pr(npoin), E(npoin)
-            real(rp),    intent(out) :: Rmass(npoin)
-            real(rp),    intent(out) :: Rmom(npoin,ndime)
             real(rp),    intent(out) :: Rener(npoin)
             integer(4)              :: ielem, igaus, idime, jdime, kdime, inode, jnode
             integer(4)              :: ipoin(4)
-            real(rp)                 :: Re_mom(4,ndime)
-            real(rp)                 :: Re_mass(4), Re_ener(4)
+            real(rp)                 :: Re_ener(4)
             real(rp)                 :: ul(4,ndime), ql(4,ndime), rhol(4), prl(4),El(4),fel(4,ndime),fl(4,ndime,ndime), fpl(4)
-            real(rp)                 :: gradRho(ndime),gradP(ndime),gradE(ndime),gradU(ndime,ndime),divF(ndime),divU,divFe,divQ
-            real(rp)                 :: gpcar(4,ndime), aux1, aux2, aux3, aux4
+            real(rp)                 :: gradE(ndime),divFe, gradU(ndime,ndime), divU
+            real(rp)                 :: gpcar(4,ndime), aux2
 
             call nvtxStartRange("FEM convection")
             !$acc kernels
-            Rmom(:,:) = 0.0_rp
-            Rmass(:) = 0.0_rp
             Rener(:) = 0.0_rp
             gpcar(:,:) = 0.0_rp
             gradU(:,:) = 0.0_rp
@@ -522,9 +517,7 @@ module elem_convec
 
             !$acc parallel loop gang private(Re_ener,ipoin) present(connec,u,q,rho,pr,E,Rener)
             do ielem = 1,nelem
-               Re_mass(:) = 0.0_rp
                Re_ener(:) = 0.0_rp
-               Re_mom(:,:) = 0.0_rp
 
                !$acc loop seq private(divFe, gradE, aux2)
                do igaus = 1,4
@@ -579,11 +572,39 @@ module elem_convec
             end do
             !$acc end parallel loop
 
+            end subroutine fem_convec_ener
+
+            subroutine fem_convec_mass(nelem,npoin,connec,Ngp,dNgp,He,gpvol,u,q,rho,pr,E,Rmass)
+
+            implicit none
+            integer(4), intent(in)  :: nelem, npoin
+            integer(4), intent(in)  :: connec(nelem,4)
+            real(rp),    intent(in)  :: Ngp(4,4), dNgp(ndime,4,4)
+            real(rp),    intent(in)  :: He(ndime,ndime,4,nelem)
+            real(rp),    intent(in)  :: gpvol(1,4,nelem)
+            real(rp),    intent(in)  :: q(npoin,ndime), u(npoin,ndime), rho(npoin),pr(npoin), E(npoin)
+            real(rp),    intent(out) :: Rmass(npoin)
+            integer(4)              :: ielem, igaus, idime, jdime, kdime, inode, jnode
+            integer(4)              :: ipoin(4)
+            real(rp)                 :: Re_mass(4)
+            real(rp)                 :: ul(4,ndime), ql(4,ndime), rhol(4), prl(4),El(4),fel(4,ndime),fl(4,ndime,ndime), fpl(4)
+            real(rp)                 :: gradRho(ndime), divQ, gradU(ndime,ndime), divU
+            real(rp)                 :: gpcar(4,ndime), aux1
+
+
+            !$acc kernels
+            Rmass(:) = 0.0_rp
+            gpcar(:,:) = 0.0_rp
+            gradU(:,:) = 0.0_rp
+            divU = 0.0_rp
+            !$acc end kernels
+
             !$acc parallel loop gang private(Re_mass,ipoin) present(connec,u,q,rho,pr,E,Rmass)
             do ielem = 1,nelem
                Re_mass(:) = 0.0_rp
-               Re_ener(:) = 0.0_rp
-               Re_mom(:,:) = 0.0_rp
+               gpcar(:,:) = 0.0_rp
+               gradU(:,:) = 0.0_rp
+               divU = 0.0_rp
 
 
                !$acc loop seq private(divQ, gradRho, aux1)
@@ -591,6 +612,14 @@ module elem_convec
                   divQ = 0.0_rp
                   gradRho(:) = 0.0_rp
                   gradU(:,:) = 0.0_rp
+
+                  !$acc loop seq
+                  do idime = 1,ndime
+                     !$acc loop seq
+                     do inode = 1,4
+                        gpcar(inode,idime) = DOT_PRODUCT(He(idime,:,igaus,ielem),dNgp(:,inode,igaus))
+                     end do
+                  end do
 
 
                   !$acc loop seq
@@ -600,8 +629,16 @@ module elem_convec
                         divQ = divQ + gpcar(jnode,idime)*q(connec(ielem,jnode),idime)
                         gradRho(idime) = gradRho(idime) + gpcar(jnode,idime)*rho(connec(ielem,jnode))
 
+                        !$acc loop seq
+                        do jdime = 1,ndime
+                           gradU(idime,jdime) = gradU(idime,jdime) + gpcar(jnode,jdime)*u(connec(ielem,jnode),idime)
+                        end do
+
                      end do
                   end do
+
+
+                  divU = gradU(1,1) + gradU(2,2) + gradU(3,3)
 
                   !$acc loop seq
                   do inode = 1,4
@@ -626,12 +663,39 @@ module elem_convec
                end do
             end do
             !$acc end parallel loop
+            end subroutine fem_convec_mass
+
+            subroutine fem_convec_mom(nelem,npoin,connec,Ngp,dNgp,He,gpvol,u,q,rho,pr,E,Rmom)
+
+            implicit none
+            integer(4), intent(in)  :: nelem, npoin
+            integer(4), intent(in)  :: connec(nelem,4)
+            real(rp),    intent(in)  :: Ngp(4,4), dNgp(ndime,4,4)
+            real(rp),    intent(in)  :: He(ndime,ndime,4,nelem)
+            real(rp),    intent(in)  :: gpvol(1,4,nelem)
+            real(rp),    intent(in)  :: q(npoin,ndime), u(npoin,ndime), rho(npoin),pr(npoin), E(npoin)
+            real(rp),    intent(out) :: Rmom(npoin,ndime)
+            integer(4)              :: ielem, igaus, idime, jdime, kdime, inode, jnode
+            integer(4)              :: ipoin(4)
+            real(rp)                 :: Re_mom(4,ndime)
+            real(rp)                 :: ul(4,ndime), ql(4,ndime), rhol(4), prl(4),El(4),fel(4,ndime),fl(4,ndime,ndime), fpl(4)
+            real(rp)                 :: gradRho(ndime),gradP(ndime),gradU(ndime,ndime),divF(ndime),divU
+            real(rp)                 :: gpcar(4,ndime), aux3, aux4
+
+
+            !$acc kernels
+            Rmom(:) = 0.0_rp
+            gpcar(:,:) = 0.0_rp
+            gradU(:,:) = 0.0_rp
+            divU = 0.0_rp
+            !$acc end kernels
 
             !$acc parallel loop gang private(Re_mom,ipoin) present(connec,u,q,rho,pr,Rmom)
             do ielem = 1,nelem
-               Re_mass(:) = 0.0_rp
-               Re_ener(:) = 0.0_rp
                Re_mom(:,:) = 0.0_rp
+               gpcar(:,:) = 0.0_rp
+               gradU(:,:) = 0.0_rp
+               divU = 0.0_rp
 
                !$acc loop seq private(gradP, gradU, aux3, aux4)
                do igaus = 1,4
@@ -642,16 +706,26 @@ module elem_convec
                   !$acc loop seq
                   do idime = 1,ndime
                      !$acc loop seq
+                     do inode = 1,4
+                        gpcar(inode,idime) = DOT_PRODUCT(He(idime,:,igaus,ielem),dNgp(:,inode,igaus))
+                     end do
+                  end do
+
+                  !$acc loop seq
+                  do idime = 1,ndime
+                     !$acc loop seq
                      do jnode = 1,4
                         gradP(idime) = gradP(idime) + gpcar(jnode,idime)*pr(connec(ielem,jnode))
 
                         !$acc loop seq
                         do jdime = 1,ndime
                            divF(idime) = divF(idime) + gpcar(jnode,jdime)*q(connec(ielem,jnode),idime)*u(connec(ielem,jnode),jdime)
+                           gradU(idime,jdime) = gradU(idime,jdime) + gpcar(jnode,jdime)*u(connec(ielem,jnode),idime)
                         end do
                      end do
                   end do
 
+                  divU = gradU(1,1) + gradU(2,2) + gradU(3,3)
 
                   !$acc loop seq
                   do inode = 1,4
@@ -686,6 +760,6 @@ module elem_convec
 
             call nvtxEndRange
 
-         end subroutine fem_convec
+         end subroutine fem_convec_mom
 
 end module elem_convec

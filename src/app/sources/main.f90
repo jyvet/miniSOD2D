@@ -432,7 +432,9 @@ program main
 
 		call nvtxStartRange("Call convective term TET")
 		tstart = MPI_Wtime()
-		call fem_convec(nelem_t,npoin_t,connec_t,Ngp_t,dNgp_t,He_t,gpvol_t,u,q,rho,pr,E,Rmass_t,Rmom_t,Rener_t)
+		call fem_convec_mom(nelem_t,npoin_t,connec_t,Ngp_t,dNgp_t,He_t,gpvol_t,u,q,rho,pr,E,Rmom_t)
+		call fem_convec_mass(nelem_t,npoin_t,connec_t,Ngp_t,dNgp_t,He_t,gpvol_t,u,q,rho,pr,E,Rmass_t)
+		call fem_convec_ener(nelem_t,npoin_t,connec_t,Ngp_t,dNgp_t,He_t,gpvol_t,u,q,rho,pr,E,Rener_t)
 		tend = MPI_Wtime()
 		tconv_tet = tend-tstart
 		tmax_convec_tet = max(tmax_convec_tet,tconv_tet)
