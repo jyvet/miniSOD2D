@@ -502,6 +502,7 @@ module elem_convec
             real(rp),    intent(out) :: Rener(npoin)
             integer(4)              :: ielem, igaus, idime, jdime, kdime, inode, jnode
             integer(4)              :: ipoin(4)
+            real(rp)                 :: E_l(nnode,nelem),rho_l(nnode,nelem),pr_l(nnode,nelem),q_l(ndime,nnode,nelem),u_l(ndime,nnode,nelem)
             real(rp)                 :: Re_mom(4,ndime)
             real(rp)                 :: Re_mass(4), Re_ener(4)
             real(rp)                 :: ul(4,ndime), ql(4,ndime), rhol(4), prl(4),El(4),fel(4,ndime),fl(4,ndime,ndime), fpl(4)
@@ -514,6 +515,20 @@ module elem_convec
             Rmass(:) = 0.0_rp
             Rener(:) = 0.0_rp
             !$acc end kernels
+
+            !!PRELOADING SECTION
+
+            do ielem = 1,nelem
+               do jnode = 1,4
+                  E_l(jnode,ielem) = E(connec(ielem,jnode))
+                  rho_l(jnode,ielem) = rho(connec(ielem,jnode))
+                  pr_l(jnode,ielem) = pr(connec(ielem,jnode))
+                  do idime = 1,ndime
+                     q_l(idime,inode,ielem) = q(connec(ielem,inode),idime)
+                     u_l(idime,inode,ielem) = u(connec(ielem,inode),idime)
+                  end do
+               end do
+            end do
 
             !$acc parallel loop gang private(Re_ener,Re_mass,Re_mom,ul,ql,rhol,prl,El,fl,fel,ipoin) present(connec,u,q,rho,pr,E,Rmass,Rmom,Rener)
             do ielem = 1,nelem
@@ -543,16 +558,16 @@ module elem_convec
                   do idime = 1,ndime
                      !$acc loop seq
                      do jnode = 1,4
-                        divQ = divQ + gpcar(jnode,idime)*q(connec(ielem,jnode),idime)
-                        divFe = divFe + gpcar(jnode,idime)*(E(connec(ielem,jnode))+pr(connec(ielem,jnode)))*u(connec(ielem,jnode),idime)
+                        divQ = divQ + gpcar(jnode,idime)*q_l(idime,jnode,ielem)
+                        divFe = divFe + gpcar(jnode,idime)*(E(connec(ielem,jnode))+pr(connec(ielem,jnode)))*u_l(idime,jnode,ielem)
                         gradRho(idime) = gradRho(idime) + gpcar(jnode,idime)*rho(connec(ielem,jnode))
                         gradE(idime) = gradE(idime) + gpcar(jnode,idime)*(E(connec(ielem,jnode))+pr(connec(ielem,jnode)))
                         gradP(idime) = gradP(idime) + gpcar(jnode,idime)*pr(connec(ielem,jnode))
 
                         !$acc loop seq
                         do jdime = 1,ndime
-                           gradU(idime,jdime) = gradU(idime,jdime) + gpcar(jnode,jdime)*u(connec(ielem,jnode),idime)
-                           divF(idime) = divF(idime) + gpcar(jnode,jdime)*q(connec(ielem,jnode),idime)*u(connec(ielem,jnode),jdime)
+                           gradU(idime,jdime) = gradU(idime,jdime) + gpcar(jnode,jdime)*u_l(idime,jnode,ielem)
+                           divF(idime) = divF(idime) + gpcar(jnode,jdime)*q_l(idime,jnode,ielem)*u_l(jdime,jnode,ielem)
                         end do
                      end do
                   end do
@@ -566,8 +581,8 @@ module elem_convec
 
                      !$acc loop seq
                      do idime = 1,ndime
-                        aux1 = aux1 + gradRho(idime)*u(connec(ielem,inode),idime)
-                        aux2 = aux2 + gradE(idime)*u(connec(ielem,inode),idime)
+                        aux1 = aux1 + gradRho(idime)*u_l(jdime,inode,ielem)
+                        aux2 = aux2 + gradE(idime)*u_l(jdime,inode,ielem)
                      end do
 
                      Re_mass(inode) = Re_mass(inode) + gpvol(1,igaus,ielem)*Ngp(igaus,inode)*0.5_rp*(divQ + rho(connec(ielem,inode))*divU + aux1)
@@ -580,11 +595,11 @@ module elem_convec
 
                         !$acc loop seq
                         do jdime = 1,ndime
-                           aux3 = aux3 + gradU(idime,jdime)*q(connec(ielem,inode),jdime)
-                           aux4 = aux4 + u(connec(ielem,inode),idime)*u(connec(ielem,inode),jdime)*gradRho(jdime)
+                           aux3 = aux3 + gradU(idime,jdime)*q_l(jdime,inode,ielem)
+                           aux4 = aux4 + u_l(jdime,inode,ielem)*u_l(jdime,inode,ielem)*gradRho(jdime)
                         end do
 
-                        Re_mom(inode,idime) = Re_mom(inode,idime) + gpvol(1,igaus,ielem)*Ngp(igaus,inode)*0.5_rp*(divF(idime) + q(connec(ielem,inode),idime)*divU + aux3 + aux4 + gradP(idime))
+                        Re_mom(inode,idime) = Re_mom(inode,idime) + gpvol(1,igaus,ielem)*Ngp(igaus,inode)*0.5_rp*(divF(idime) + q_l(idime,inode,ielem)*divU + aux3 + aux4 + gradP(idime))
                      end do
                   end do
                end do
