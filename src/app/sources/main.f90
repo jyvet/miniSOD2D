@@ -422,7 +422,7 @@ program main
 	do i = 1,nruns
 		call nvtxStartRange("Call convective term")
 		tstart = MPI_Wtime()
-		call full_convec_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,u,q,rho,pr,E,Rmass,Rmom,Rener)
+		call full_convec_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,u,q,rho,pr,E,Rmass,Rmom,Rener,i)
 		tend = MPI_Wtime()
 		tconvec = tend-tstart
 		tmax_convec = max(tmax_convec,tconvec)

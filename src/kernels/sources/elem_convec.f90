@@ -11,15 +11,15 @@ module elem_convec
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       contains
-         subroutine full_convec_ijk_momentum(nelem,npoin,connec,He,gpvol,dlxigp_ip,invAtoIJK,gmshAtoI,gmshAtoJ,gmshAtoK,u,q,rho,pr,Rmom)
+         subroutine full_convec_ijk_momentum(nelem,npoin,connec,He,gpvol,dlxigp_ip,invAtoIJK,gmshAtoI,gmshAtoJ,gmshAtoK,u,q,rho,pr,Rmom,iteration)
             implicit none
 
-            integer(4), intent(in)  :: nelem, npoin
+            integer(4), intent(in)  :: nelem, npoin, iteration
             integer(4), intent(in)  :: connec(nelem,nnode)
             real(rp),    intent(in)  :: He(ndime,ndime,ngaus,nelem),dlxigp_ip(ngaus,ndime,porder+1)
             real(rp),    intent(in)  :: gpvol(1,ngaus,nelem)
             integer(4), intent(in)  :: invAtoIJK(porder+1,porder+1,porder+1),gmshAtoI(nnode),gmshAtoJ(nnode),gmshAtoK(nnode)
-            real(rp),    intent(in)  :: q(npoin,ndime), u(npoin,ndime),rho(npoin),pr(npoin)
+            real(rp),    intent(in)  :: q(npoin,ndime), u(npoin,ndime),rho(npoin),pr(npoin)!!,qr,ur !! Reordered matrices for regular memory accesses
             real(rp),    intent(out) :: Rmom(npoin,ndime)
             integer(4)              :: ielem,igaus,idime,jdime,kdime,inode,isoI,isoJ,isoK,ii
             integer(4)              :: ipoin(nnode)
@@ -32,112 +32,211 @@ module elem_convec
             !$acc kernels
             Rmom(:,:) = 0.0_rp
             !$acc end kernels
+            if (iteration>1) then
+               !$acc parallel loop gang private(ipoin,idime,jdime,kdime,Re_mom,ul,ql,rhol,prl,fl,fuul) !!vector_length(vecLength)
+               do ielem = 1,nelem
+                  !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoP,gradIsoU,gradIsoF,gradIsoFuu,gradIsoQ,gradRho,gradP,gradRE,gradU,divF,divU,divQ,gradQ,divFuu,isoI,isoJ,isoK,ii)
+                  do igaus = 1,ngaus
+                     !$acc loop seq
+                     do ii=1,porder+1
+                        dlxi_ip(ii) = dlxigp_ip(igaus,1,ii)
+                        dleta_ip(ii) = dlxigp_ip(igaus,2,ii)
+                        dlzeta_ip(ii) = dlxigp_ip(igaus,3,ii)
+                     end do
+                     isoI = gmshAtoI(igaus)
+                     isoJ = gmshAtoJ(igaus)
+                     isoK = gmshAtoK(igaus)
 
-            !$acc parallel loop gang private(ipoin,idime,jdime,kdime,Re_mom,ul,ql,rhol,prl,fl,fuul) !!vector_length(vecLength)
-            do ielem = 1,nelem
-               !$acc loop vector
-               do inode = 1,nnode
-                  ipoin(inode) = connec(ielem,inode)
-               end do
-               !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoP,gradIsoU,gradIsoF,gradIsoFuu,gradIsoQ,gradRho,gradP,gradRE,gradU,divF,divU,divQ,gradQ,divFuu,isoI,isoJ,isoK,ii)
-               do igaus = 1,ngaus
-                  !$acc loop seq
-                  do ii=1,porder+1
-                     dlxi_ip(ii) = dlxigp_ip(igaus,1,ii)
-                     dleta_ip(ii) = dlxigp_ip(igaus,2,ii)
-                     dlzeta_ip(ii) = dlxigp_ip(igaus,3,ii)
-                  end do
-                  isoI = gmshAtoI(igaus)
-                  isoJ = gmshAtoJ(igaus)
-                  isoK = gmshAtoK(igaus)
-
-                  gradIsoRho(:) = 0.0_rp
-                  gradIsoP(:) = 0.0_rp
-                  gradIsoU(:,:) = 0.0_rp
-                  gradIsoF(:,:,:) = 0.0_rp
-                  gradIsoFuu(:,:,:) = 0.0_rp
-                  gradIsoQ(:,:) = 0.0_rp
-
-                  !$acc loop seq
-                  do ii=1,porder+1
-                     gradIsoRho(1) = gradIsoRho(1) + dlxi_ip(ii)*rho(ipoin(invAtoIJK(ii,isoJ,isoK)))
-                     gradIsoRho(2) = gradIsoRho(2) + dleta_ip(ii)*rho(ipoin(invAtoIJK(isoI,ii,isoK)))
-                     gradIsoRho(3) = gradIsoRho(3) + dlzeta_ip(ii)*rho(ipoin(invAtoIJK(isoI,isoJ,ii)))
-
-                     gradIsoP(1) = gradIsoP(1) + dlxi_ip(ii)*pr(ipoin(invAtoIJK(ii,isoJ,isoK)))
-                     gradIsoP(2) = gradIsoP(2) + dleta_ip(ii)*pr(ipoin(invAtoIJK(isoI,ii,isoK)))
-                     gradIsoP(3) = gradIsoP(3) + dlzeta_ip(ii)*pr(ipoin(invAtoIJK(isoI,isoJ,ii)))
+                     gradIsoRho(:) = 0.0_rp
+                     gradIsoP(:) = 0.0_rp
+                     gradIsoU(:,:) = 0.0_rp
+                     gradIsoF(:,:,:) = 0.0_rp
+                     gradIsoFuu(:,:,:) = 0.0_rp
+                     gradIsoQ(:,:) = 0.0_rp
 
                      !$acc loop seq
-                     do idime=1,ndime
-                        gradIsoU(idime,1) = gradIsoU(idime,1) + dlxi_ip(ii)*u(ipoin(invAtoIJK(ii,isoJ,isoK)),idime)
-                        gradIsoU(idime,2) = gradIsoU(idime,2) + dleta_ip(ii)*u(ipoin(invAtoIJK(isoI,ii,isoK)),idime)
-                        gradIsoU(idime,3) = gradIsoU(idime,3) + dlzeta_ip(ii)*u(ipoin(invAtoIJK(isoI,isoJ,ii)),idime)
+                     do ii=1,porder+1
+                        gradIsoRho(1) = gradIsoRho(1) + dlxi_ip(ii)*rho(connec(ielem,invAtoIJK(ii,isoJ,isoK)))
+                        gradIsoRho(2) = gradIsoRho(2) + dleta_ip(ii)*rho(connec(ielem,invAtoIJK(isoI,ii,isoK)))
+                        gradIsoRho(3) = gradIsoRho(3) + dlzeta_ip(ii)*rho(connec(ielem,invAtoIJK(isoI,isoJ,ii)))
 
-                        gradIsoQ(idime,1) = gradIsoQ(idime,1) + dlxi_ip(ii)*q(ipoin(invAtoIJK(ii,isoJ,isoK)),idime)
-                        gradIsoQ(idime,2) = gradIsoQ(idime,2) + dleta_ip(ii)*q(ipoin(invAtoIJK(isoI,ii,isoK)),idime)
-                        gradIsoQ(idime,3) = gradIsoQ(idime,3) + dlzeta_ip(ii)*q(ipoin(invAtoIJK(isoI,isoJ,ii)),idime)
+                        gradIsoP(1) = gradIsoP(1) + dlxi_ip(ii)*pr(connec(ielem,invAtoIJK(ii,isoJ,isoK)))
+                        gradIsoP(2) = gradIsoP(2) + dleta_ip(ii)*pr(connec(ielem,invAtoIJK(isoI,ii,isoK)))
+                        gradIsoP(3) = gradIsoP(3) + dlzeta_ip(ii)*pr(connec(ielem,invAtoIJK(isoI,isoJ,ii)))
 
-                        do jdime=1, ndime
-                            gradIsoF(idime,jdime,1) = gradIsoF(idime,jdime,1) + dlxi_ip(ii)*q(ipoin(invAtoIJK(ii,isoJ,isoK)),idime)*u(ipoin(invAtoIJK(ii,isoJ,isoK)),jdime)
-                            gradIsoF(idime,jdime,2) = gradIsoF(idime,jdime,2) + dleta_ip(ii)*q(ipoin(invAtoIJK(isoI,ii,isoK)),idime)*u(ipoin(invAtoIJK(isoI,ii,isoK)),jdime)
-                            gradIsoF(idime,jdime,3) = gradIsoF(idime,jdime,3) + dlzeta_ip(ii)*q(ipoin(invAtoIJK(isoI,isoJ,ii)),idime)*u(ipoin(invAtoIJK(isoI,isoJ,ii)),jdime)
-                            gradIsoFuu(idime,jdime,1) = gradIsoFuu(idime,jdime,1) + dlxi_ip(ii)*u(ipoin(invAtoIJK(ii,isoJ,isoK)),idime)*u(ipoin(invAtoIJK(ii,isoJ,isoK)),jdime)
-                            gradIsoFuu(idime,jdime,2) = gradIsoFuu(idime,jdime,2) + dleta_ip(ii)*u(ipoin(invAtoIJK(isoI,ii,isoK)),idime)*u(ipoin(invAtoIJK(isoI,ii,isoK)),jdime)
-                            gradIsoFuu(idime,jdime,3) = gradIsoFuu(idime,jdime,3) + dlzeta_ip(ii)*u(ipoin(invAtoIJK(isoI,isoJ,ii)),idime)*u(ipoin(invAtoIJK(isoI,isoJ,ii)),jdime)
+                        !$acc loop seq
+                        do idime=1,ndime
+                           gradIsoU(idime,1) = gradIsoU(idime,1) + dlxi_ip(ii)*u(connec(ielem,invAtoIJK(ii,isoJ,isoK)),idime)
+                           gradIsoU(idime,2) = gradIsoU(idime,2) + dleta_ip(ii)*u(connec(ielem,invAtoIJK(isoI,ii,isoK)),idime)
+                           gradIsoU(idime,3) = gradIsoU(idime,3) + dlzeta_ip(ii)*u(connec(ielem,invAtoIJK(isoI,isoJ,ii)),idime)
+
+                           gradIsoQ(idime,1) = gradIsoQ(idime,1) + dlxi_ip(ii)*q(connec(ielem,invAtoIJK(ii,isoJ,isoK)),idime)
+                           gradIsoQ(idime,2) = gradIsoQ(idime,2) + dleta_ip(ii)*q(connec(ielem,invAtoIJK(isoI,ii,isoK)),idime)
+                           gradIsoQ(idime,3) = gradIsoQ(idime,3) + dlzeta_ip(ii)*q(connec(ielem,invAtoIJK(isoI,isoJ,ii)),idime)
+
+                           do jdime=1, ndime
+                              gradIsoF(idime,jdime,1) = gradIsoF(idime,jdime,1) + dlxi_ip(ii)*q(connec(ielem,invAtoIJK(ii,isoJ,isoK)),idime)*u(connec(ielem,invAtoIJK(ii,isoJ,isoK)),jdime)
+                              gradIsoF(idime,jdime,2) = gradIsoF(idime,jdime,2) + dleta_ip(ii)*q(connec(ielem,invAtoIJK(isoI,ii,isoK)),idime)*u(connec(ielem,invAtoIJK(isoI,ii,isoK)),jdime)
+                              gradIsoF(idime,jdime,3) = gradIsoF(idime,jdime,3) + dlzeta_ip(ii)*q(connec(ielem,invAtoIJK(isoI,isoJ,ii)),idime)*u(connec(ielem,invAtoIJK(isoI,isoJ,ii)),jdime)
+                              gradIsoFuu(idime,jdime,1) = gradIsoFuu(idime,jdime,1) + dlxi_ip(ii)*u(connec(ielem,invAtoIJK(ii,isoJ,isoK)),idime)*u(connec(ielem,invAtoIJK(ii,isoJ,isoK)),jdime)
+                              gradIsoFuu(idime,jdime,2) = gradIsoFuu(idime,jdime,2) + dleta_ip(ii)*u(connec(ielem,invAtoIJK(isoI,ii,isoK)),idime)*u(connec(ielem,invAtoIJK(isoI,ii,isoK)),jdime)
+                              gradIsoFuu(idime,jdime,3) = gradIsoFuu(idime,jdime,3) + dlzeta_ip(ii)*u(connec(ielem,invAtoIJK(isoI,isoJ,ii)),idime)*u(connec(ielem,invAtoIJK(isoI,isoJ,ii)),jdime)
+                           end do
                         end do
                      end do
-                  end do
 
-                  gradRho(:) = 0.0_rp
-                  gradP(:) = 0.0_rp
-                  gradU(:,:) = 0.0_rp
-                  gradQ(:,:) = 0.0_rp
-                  divF(:) = 0.0_rp
-                  divFuu(:) = 0.0_rp
-                  divQ = 0.0_rp
+                     gradRho(:) = 0.0_rp
+                     gradP(:) = 0.0_rp
+                     gradU(:,:) = 0.0_rp
+                     gradQ(:,:) = 0.0_rp
+                     divF(:) = 0.0_rp
+                     divFuu(:) = 0.0_rp
+                     divQ = 0.0_rp
 
-                  !$acc loop seq
-                  do idime=1, ndime
                      !$acc loop seq
-                     do jdime=1, ndime
-                         gradRho(idime) = gradRho(idime) + He(idime,jdime,igaus,ielem) * gradIsoRho(jdime)
-                         gradP(idime)   = gradP(idime) + He(idime,jdime,igaus,ielem) * gradIsoP(jdime)
-                         !$acc loop seq
-                         do kdime=1,ndime
-                            gradU(idime,jdime) = gradU(idime,jdime) + He(jdime,kdime,igaus,ielem) * gradIsoU(idime,kdime)
-                            gradQ(idime,jdime) = gradQ(idime,jdime) + He(jdime,kdime,igaus,ielem) * gradIsoQ(idime,kdime)
-                            divF(idime) = divF(idime) + He(jdime,kdime,igaus,ielem)*gradIsoF(idime,jdime,kdime)
-                            divFuu(idime) = divFuu(idime) + He(jdime,kdime,igaus,ielem)*gradIsoFuu(idime,jdime,kdime)
-                         end do
+                     do idime=1, ndime
+                        !$acc loop seq
+                        do jdime=1, ndime
+                           gradRho(idime) = gradRho(idime) + He(idime,jdime,igaus,ielem) * gradIsoRho(jdime)
+                           gradP(idime)   = gradP(idime) + He(idime,jdime,igaus,ielem) * gradIsoP(jdime)
+                           !$acc loop seq
+                           do kdime=1,ndime
+                              gradU(idime,jdime) = gradU(idime,jdime) + He(jdime,kdime,igaus,ielem) * gradIsoU(idime,kdime)
+                              gradQ(idime,jdime) = gradQ(idime,jdime) + He(jdime,kdime,igaus,ielem) * gradIsoQ(idime,kdime)
+                              divF(idime) = divF(idime) + He(jdime,kdime,igaus,ielem)*gradIsoF(idime,jdime,kdime)
+                              divFuu(idime) = divFuu(idime) + He(jdime,kdime,igaus,ielem)*gradIsoFuu(idime,jdime,kdime)
+                           end do
+                        end do
                      end do
-                  end do
-                  divU  = gradU(1,1)  + gradU(2,2)  + gradU(3,3)
-                  divQ  = gradQ(1,1)  + gradQ(2,2)  + gradQ(3,3)
+                     divU  = gradU(1,1)  + gradU(2,2)  + gradU(3,3)
+                     divQ  = gradQ(1,1)  + gradQ(2,2)  + gradQ(3,3)
 
-                  !$acc loop seq
-                  do idime=1, ndime
-                     Re_mom(igaus,idime) = 0.25_rp*(divF(idime)+u(ipoin(igaus),idime)*divQ+q(ipoin(igaus),idime)*divU+rho(ipoin(igaus))*divFuu(idime)) + gradP(idime)
-                     do jdime=1, ndime
-                        Re_mom(igaus,idime) = Re_mom(igaus,idime) + 0.25_rp*(u(ipoin(igaus),idime)*u(ipoin(igaus),jdime)*gradRho(jdime)  &
-                                                                  + q(ipoin(igaus),idime)*gradU(idime,jdime)+u(ipoin(igaus),jdime)*gradQ(idime,jdime))
+                     !$acc loop seq
+                     do idime=1, ndime
+                        Re_mom(igaus,idime) = 0.25_rp*(divF(idime)+u(connec(ielem,igaus),idime)*divQ+q(connec(ielem,igaus),idime)*divU+rho(connec(ielem,igaus))*divFuu(idime)) + gradP(idime)
+                        do jdime=1, ndime
+                           Re_mom(igaus,idime) = Re_mom(igaus,idime) + 0.25_rp*(u(connec(ielem,igaus),idime)*u(connec(ielem,igaus),jdime)*gradRho(jdime)  &
+                                                                     + q(connec(ielem,igaus),idime)*gradU(idime,jdime)+u(connec(ielem,igaus),jdime)*gradQ(idime,jdime))
+                        end do
+                        Re_mom(igaus,idime) = gpvol(1,igaus,ielem)*Re_mom(igaus,idime)
                      end do
-                     Re_mom(igaus,idime) = gpvol(1,igaus,ielem)*Re_mom(igaus,idime)
+                  end do
+                  !
+                  ! Final assembly
+                  !
+                  !$acc loop vector collapse(2)
+                  do idime = 1,ndime
+                     do inode = 1,nnode
+                        !$acc atomic update
+                        Rmom(connec(ielem,inode),idime) = Rmom(connec(ielem,inode),idime)+Re_mom(inode,idime)
+                        !$acc end atomic
+                     end do
                   end do
                end do
-               !
-               ! Final assembly
-               !
-               !$acc loop vector collapse(2)
-               do idime = 1,ndime
-                  do inode = 1,nnode
-                     !$acc atomic update
-                     Rmom(ipoin(inode),idime) = Rmom(ipoin(inode),idime)+Re_mom(inode,idime)
-                     !$acc end atomic
+               !$acc end parallel loop 
+            else 
+               !$acc parallel loop gang private(ipoin,idime,jdime,kdime,Re_mom,ul,ql,rhol,prl,fl,fuul) !!vector_length(vecLength)
+               do ielem = 1,nelem
+                  !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoP,gradIsoU,gradIsoF,gradIsoFuu,gradIsoQ,gradRho,gradP,gradRE,gradU,divF,divU,divQ,gradQ,divFuu,isoI,isoJ,isoK,ii)
+                  do igaus = 1,ngaus
+                     !$acc loop seq
+                     do ii=1,porder+1
+                        dlxi_ip(ii) = dlxigp_ip(igaus,1,ii)
+                        dleta_ip(ii) = dlxigp_ip(igaus,2,ii)
+                        dlzeta_ip(ii) = dlxigp_ip(igaus,3,ii)
+                     end do
+                     isoI = gmshAtoI(igaus)
+                     isoJ = gmshAtoJ(igaus)
+                     isoK = gmshAtoK(igaus)
+
+                     gradIsoRho(:) = 0.0_rp
+                     gradIsoP(:) = 0.0_rp
+                     gradIsoU(:,:) = 0.0_rp
+                     gradIsoF(:,:,:) = 0.0_rp
+                     gradIsoFuu(:,:,:) = 0.0_rp
+                     gradIsoQ(:,:) = 0.0_rp
+
+                     !$acc loop seq
+                     do ii=1,porder+1
+                        gradIsoRho(1) = gradIsoRho(1) + dlxi_ip(ii)*rho(connec(ielem,invAtoIJK(ii,isoJ,isoK)))
+                        gradIsoRho(2) = gradIsoRho(2) + dleta_ip(ii)*rho(connec(ielem,invAtoIJK(isoI,ii,isoK)))
+                        gradIsoRho(3) = gradIsoRho(3) + dlzeta_ip(ii)*rho(connec(ielem,invAtoIJK(isoI,isoJ,ii)))
+
+                        gradIsoP(1) = gradIsoP(1) + dlxi_ip(ii)*pr(connec(ielem,invAtoIJK(ii,isoJ,isoK)))
+                        gradIsoP(2) = gradIsoP(2) + dleta_ip(ii)*pr(connec(ielem,invAtoIJK(isoI,ii,isoK)))
+                        gradIsoP(3) = gradIsoP(3) + dlzeta_ip(ii)*pr(connec(ielem,invAtoIJK(isoI,isoJ,ii)))
+
+                        !$acc loop seq
+                        do idime=1,ndime
+                           gradIsoU(idime,1) = gradIsoU(idime,1) + dlxi_ip(ii)*u(connec(ielem,invAtoIJK(ii,isoJ,isoK)),idime)
+                           gradIsoU(idime,2) = gradIsoU(idime,2) + dleta_ip(ii)*u(connec(ielem,invAtoIJK(isoI,ii,isoK)),idime)
+                           gradIsoU(idime,3) = gradIsoU(idime,3) + dlzeta_ip(ii)*u(connec(ielem,invAtoIJK(isoI,isoJ,ii)),idime)
+
+                           gradIsoQ(idime,1) = gradIsoQ(idime,1) + dlxi_ip(ii)*q(connec(ielem,invAtoIJK(ii,isoJ,isoK)),idime)
+                           gradIsoQ(idime,2) = gradIsoQ(idime,2) + dleta_ip(ii)*q(connec(ielem,invAtoIJK(isoI,ii,isoK)),idime)
+                           gradIsoQ(idime,3) = gradIsoQ(idime,3) + dlzeta_ip(ii)*q(connec(ielem,invAtoIJK(isoI,isoJ,ii)),idime)
+
+                           do jdime=1, ndime
+                              gradIsoF(idime,jdime,1) = gradIsoF(idime,jdime,1) + dlxi_ip(ii)*q(connec(ielem,invAtoIJK(ii,isoJ,isoK)),idime)*u(connec(ielem,invAtoIJK(ii,isoJ,isoK)),jdime)
+                              gradIsoF(idime,jdime,2) = gradIsoF(idime,jdime,2) + dleta_ip(ii)*q(connec(ielem,invAtoIJK(isoI,ii,isoK)),idime)*u(connec(ielem,invAtoIJK(isoI,ii,isoK)),jdime)
+                              gradIsoF(idime,jdime,3) = gradIsoF(idime,jdime,3) + dlzeta_ip(ii)*q(connec(ielem,invAtoIJK(isoI,isoJ,ii)),idime)*u(connec(ielem,invAtoIJK(isoI,isoJ,ii)),jdime)
+                              gradIsoFuu(idime,jdime,1) = gradIsoFuu(idime,jdime,1) + dlxi_ip(ii)*u(connec(ielem,invAtoIJK(ii,isoJ,isoK)),idime)*u(connec(ielem,invAtoIJK(ii,isoJ,isoK)),jdime)
+                              gradIsoFuu(idime,jdime,2) = gradIsoFuu(idime,jdime,2) + dleta_ip(ii)*u(connec(ielem,invAtoIJK(isoI,ii,isoK)),idime)*u(connec(ielem,invAtoIJK(isoI,ii,isoK)),jdime)
+                              gradIsoFuu(idime,jdime,3) = gradIsoFuu(idime,jdime,3) + dlzeta_ip(ii)*u(connec(ielem,invAtoIJK(isoI,isoJ,ii)),idime)*u(connec(ielem,invAtoIJK(isoI,isoJ,ii)),jdime)
+                           end do
+                        end do
+                     end do
+
+                     gradRho(:) = 0.0_rp
+                     gradP(:) = 0.0_rp
+                     gradU(:,:) = 0.0_rp
+                     gradQ(:,:) = 0.0_rp
+                     divF(:) = 0.0_rp
+                     divFuu(:) = 0.0_rp
+                     divQ = 0.0_rp
+
+                     !$acc loop seq
+                     do idime=1, ndime
+                        !$acc loop seq
+                        do jdime=1, ndime
+                           gradRho(idime) = gradRho(idime) + He(idime,jdime,igaus,ielem) * gradIsoRho(jdime)
+                           gradP(idime)   = gradP(idime) + He(idime,jdime,igaus,ielem) * gradIsoP(jdime)
+                           !$acc loop seq
+                           do kdime=1,ndime
+                              gradU(idime,jdime) = gradU(idime,jdime) + He(jdime,kdime,igaus,ielem) * gradIsoU(idime,kdime)
+                              gradQ(idime,jdime) = gradQ(idime,jdime) + He(jdime,kdime,igaus,ielem) * gradIsoQ(idime,kdime)
+                              divF(idime) = divF(idime) + He(jdime,kdime,igaus,ielem)*gradIsoF(idime,jdime,kdime)
+                              divFuu(idime) = divFuu(idime) + He(jdime,kdime,igaus,ielem)*gradIsoFuu(idime,jdime,kdime)
+                           end do
+                        end do
+                     end do
+                     divU  = gradU(1,1)  + gradU(2,2)  + gradU(3,3)
+                     divQ  = gradQ(1,1)  + gradQ(2,2)  + gradQ(3,3)
+
+                     !$acc loop seq
+                     do idime=1, ndime
+                        Re_mom(igaus,idime) = 0.25_rp*(divF(idime)+u(connec(ielem,igaus),idime)*divQ+q(connec(ielem,igaus),idime)*divU+rho(connec(ielem,igaus))*divFuu(idime)) + gradP(idime)
+                        do jdime=1, ndime
+                           Re_mom(igaus,idime) = Re_mom(igaus,idime) + 0.25_rp*(u(connec(ielem,igaus),idime)*u(connec(ielem,igaus),jdime)*gradRho(jdime)  &
+                                                                     + q(connec(ielem,igaus),idime)*gradU(idime,jdime)+u(connec(ielem,igaus),jdime)*gradQ(idime,jdime))
+                        end do
+                        Re_mom(igaus,idime) = gpvol(1,igaus,ielem)*Re_mom(igaus,idime)
+                     end do
+                  end do
+                  !
+                  ! Final assembly
+                  !
+                  !$acc loop vector collapse(2)
+                  do idime = 1,ndime
+                     do inode = 1,nnode
+                        !$acc atomic update
+                        Rmom(connec(ielem,inode),idime) = Rmom(connec(ielem,inode),idime)+Re_mom(inode,idime)
+                        !$acc end atomic
+                     end do
                   end do
                end do
-            end do
-            !$acc end parallel loop
+               !$acc end parallel loop           
+            end if
          end subroutine full_convec_ijk_momentum
 
          subroutine full_convec_ijk_energy(nelem,npoin,connec,He,gpvol,dlxigp_ip,invAtoIJK,gmshAtoI,gmshAtoJ,gmshAtoK,u,q,rho,E,Rener)
@@ -438,10 +537,10 @@ module elem_convec
             !$acc end parallel loop
          end subroutine full_convec_ijk_mass
 
-         subroutine full_convec_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,gmshAtoI,gmshAtoJ,gmshAtoK,u,q,rho,pr,E,Rmass,Rmom,Rener)
+         subroutine full_convec_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,gmshAtoI,gmshAtoJ,gmshAtoK,u,q,rho,pr,E,Rmass,Rmom,Rener,iteration)
             implicit none
 
-            integer(4), intent(in)  :: nelem, npoin
+            integer(4), intent(in)  :: nelem, npoin,iteration
             integer(4), intent(in)  :: connec(nelem,nnode)
             real(rp),    intent(in)  :: Ngp(ngaus,nnode), dNgp(ndime,nnode,ngaus)
             real(rp),    intent(in)  :: He(ndime,ndime,ngaus,nelem),xgp(ngaus,ndime),dlxigp_ip(ngaus,ndime,porder+1)
@@ -461,7 +560,7 @@ module elem_convec
             real(rp), dimension(porder+1) :: dlxi_ip, dleta_ip, dlzeta_ip
 
             call nvtxStartRange("Full convection")
-            call full_convec_ijk_momentum(nelem,npoin,connec,He,gpvol,dlxigp_ip,invAtoIJK,gmshAtoI,gmshAtoJ,gmshAtoK,u,q,rho,pr,Rmom)
+            call full_convec_ijk_momentum(nelem,npoin,connec,He,gpvol,dlxigp_ip,invAtoIJK,gmshAtoI,gmshAtoJ,gmshAtoK,u,q,rho,pr,Rmom,iteration)
             call full_convec_ijk_energy(nelem,npoin,connec,He,gpvol,dlxigp_ip,invAtoIJK,gmshAtoI,gmshAtoJ,gmshAtoK,u,q,rho,E,Rener)
             call full_convec_ijk_mass(nelem,npoin,connec,He,gpvol,dlxigp_ip,invAtoIJK,gmshAtoI,gmshAtoJ,gmshAtoK,u,q,rho,Rmass)
             call nvtxEndRange
