@@ -20,7 +20,7 @@ program main
 	!
 	integer(4), parameter   :: nelem = 100000
 	integer(4), parameter   :: npoin = nelem * nnode
-	integer(4), allocatable :: connec(:,:)
+	integer(4), allocatable :: connec(:,:), connecr(:,:,:,:)
 	real(rp)  , allocatable :: coord(:,:), He(:,:,:,:), gpvol(:,:,:)
 
 	!
@@ -254,6 +254,7 @@ program main
 	! Generate mesh
 	!
 	allocate(connec(nelem,nnode))
+	allocate(connecr(3,porder+1,ngaus,nelem))
 	allocate(coord(npoin,ndime))
 	call nvtxStartRange("Generate mesh")
 	call create_mesh(nelem, npoin, xgp, connec, coord)
@@ -422,7 +423,7 @@ program main
 	do i = 1,nruns
 		call nvtxStartRange("Call convective term")
 		tstart = MPI_Wtime()
-		call full_convec_ijk(nelem,npoin,connec,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,u,q,rho,pr,E,Rmass,Rmom,Rener,i)
+		call full_convec_ijk(nelem,npoin,connec,connecr,Ngp,dNgp,He,gpvol,dlxigp_ip,xgp,invAtoIJK,AtoI,AtoJ,AtoK,u,q,rho,pr,E,Rmass,Rmom,Rener,i)
 		tend = MPI_Wtime()
 		tconvec = tend-tstart
 		tmax_convec = max(tmax_convec,tconvec)
