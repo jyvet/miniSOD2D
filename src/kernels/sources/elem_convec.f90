@@ -39,6 +39,7 @@ module elem_convec
                do inode = 1,nnode
                   ipoin(inode) = connec(ielem,inode)
                end do
+               !$acc cache (u(1:npoin,1:ndime),q(1:npoin,1:ndime))
                !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoP,gradIsoU,gradIsoF,gradIsoFuu,gradIsoQ,gradRho,gradP,gradRE,gradU,divF,divU,divQ,gradQ,divFuu,isoI,isoJ,isoK,ii)
                do igaus = 1,ngaus
                   !$acc loop seq
