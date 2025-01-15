@@ -22,8 +22,8 @@ module elem_convec
             integer(4), intent(in)  :: invAtoIJK(porder+1,porder+1,porder+1),gmshAtoI(nnode),gmshAtoJ(nnode),gmshAtoK(nnode)
             real(rp),    intent(in)  :: q(npoin,ndime), u(npoin,ndime),rho(npoin),pr(npoin)!!,qr,ur !! Reordered matrices for regular memory accesses
             real(rp),    intent(out) :: Rmom(npoin,ndime)
-            integer(4)              :: ielem,igaus,idime,jdime,kdime,inode,isoI,isoJ,isoK,ii
-            integer(4)              :: ipoin(nnode),connec1,connec2,connec3
+            integer(4)              :: ielem,igaus,idime,jdime,kdime,inode,isoI,isoJ,isoK,ii,dim
+            integer(4)              :: ipoin(nnode),connec1,connec2,connec3,connecrl(3,porder+1,ngaus)
             real(rp)                 :: Re_mom(nnode,ndime)
             real(rp)                 :: gradIsoRho(ndime),gradIsoP(ndime),gradIsoU(ndime,ndime),gradIsoF(ndime,ndime,ndime),gradIsoQ(ndime,ndime)
             real(rp)                 :: gradRho(ndime),gradP(ndime),gradU(ndime,ndime),divF(ndime),divU,divFe,divQ,gradQ(ndime,ndime),gradIsoFuu(ndime,ndime,ndime),gradRE(ndime),divFk
@@ -37,6 +37,14 @@ module elem_convec
                !$acc parallel loop gang private(ipoin,idime,jdime,kdime,Re_mom,ul,ql,rhol,prl,fl,fuul) !!vector_length(vecLength)
                do ielem = 1,nelem
                   !$acc loop vector private(dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoP,gradIsoU,gradIsoF,gradIsoFuu,gradIsoQ,gradRho,gradP,gradRE,gradU,divF,divU,divQ,gradQ,divFuu,isoI,isoJ,isoK,ii)
+                  do igaus = 1,ngaus
+                     do ii = 1,porder+1
+                        do dim = 1,3
+                           connecrl(dim,ii,igaus) = connecr(dim,ii,igaus,ielem)
+                        end do
+                     end do
+                  end do
+                  !$acc loop vector private(connecrl,dlxi_ip,dleta_ip,dlzeta_ip,gradIsoRho,gradIsoP,gradIsoU,gradIsoF,gradIsoFuu,gradIsoQ,gradRho,gradP,gradRE,gradU,divF,divU,divQ,gradQ,divFuu,isoI,isoJ,isoK,ii)
                   do igaus = 1,ngaus
                      !$acc loop seq
                      do ii=1,porder+1
@@ -57,9 +65,9 @@ module elem_convec
 
                      !$acc loop seq
                      do ii=1,porder+1
-                        connec1 = connecr(1,ii,igaus,ielem)
-                        connec2 = connecr(2,ii,igaus,ielem)
-                        connec3 = connecr(3,ii,igaus,ielem)
+                        connec1 = connecrl(1,ii,igaus)
+                        connec2 = connecrl(2,ii,igaus)
+                        connec3 = connecrl(3,ii,igaus)
                         gradIsoRho(1) = gradIsoRho(1) + dlxi_ip(ii)*rho(connec1)
                         gradIsoRho(2) = gradIsoRho(2) + dleta_ip(ii)*rho(connec2)
                         gradIsoRho(3) = gradIsoRho(3) + dlzeta_ip(ii)*rho(connec3)
